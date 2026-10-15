@@ -1,0 +1,103 @@
+# Setup
+
+Network details below come from Mezo's developer docs. Still unconfirmed: MUSD testnet
+contract addresses and the deployed `openTrove` signature (tasks T0.3, T0.4).
+
+## Prerequisites
+- Node 20+, pnpm
+- Foundry: `curl -L https://foundry.paradigm.xyz | bash && foundryup`
+- Slither: `pipx install slither-analyzer` (or `pip install slither-analyzer`)
+- A fresh testnet-only wallet (never reuse a wallet holding real funds)
+
+## Mezo testnet
+- Chain ID: 31611 · native currency BTC, 18 decimals
+- RPC (HTTPS): https://rpc.test.mezo.org
+- RPC (WSS): wss://rpc-ws.test.mezo.org
+- Explorer: https://explorer.test.mezo.org
+- Testnet BTC: official Mezo Faucet (CAPTCHA-protected, so fund wallets by hand)
+- Mezo's docs set Solidity 0.8.28 with `evmVersion: "london"` for testnet
+- MUSD contract addresses: from `mezo-org/musd` → `solidity/deployments/matsnet/`
+  (matsnet = testnet), or Mezo's "Contracts and Token Addresses" docs page. Cross-check both.
+
+## Contracts
+```bash
+mkdir contracts && cd contracts
+forge init --no-git --no-commit .
+forge install OpenZeppelin/openzeppelin-contracts --no-commit
+forge install PaulRBerg/prb-math --no-commit   # Wave 2 GN pricer
+```
+
+`contracts/foundry.toml`:
+```toml
+[profile.default]
+src = "src"
+test = "test"
+out = "out"
+libs = ["lib"]
+solc_version = "0.8.28"
+evm_version = "london"  # per Mezo docs; T0.6 confirms with a real deploy
+optimizer = true
+optimizer_runs = 200
+fuzz = { runs = 1000 }
+invariant = { runs = 256, depth = 50 }
+
+[rpc_endpoints]
+mezo_testnet = "${MEZO_TESTNET_RPC}"
+```
+
+`contracts/remappings.txt`:
+```
+@openzeppelin/=lib/openzeppelin-contracts/
+@prb/math/=lib/prb-math/
+```
+
+`contracts/.env` (git-ignored):
+```
+MEZO_TESTNET_RPC=https://rpc.test.mezo.org
+DEPLOYER_PRIVATE_KEY=
+```
+
+Common commands:
+```bash
+forge build
+forge test
+forge test --match-path 'test/fork/*' --fork-url mezo_testnet
+forge script script/Deploy.s.sol --rpc-url mezo_testnet --broadcast
+slither .
+```
+
+## Keeper
+```bash
+mkdir keeper && cd keeper
+pnpm init && pnpm add viem dotenv && pnpm add -D typescript tsx @types/node
+npx tsc --init --strict
+```
+`keeper/.env`: `MEZO_TESTNET_RPC`, `KEEPER_PRIVATE_KEY`, `MARKET_ADDRESS`, `FACTORY_ADDRESS`.
+
+## Web
+```bash
+pnpm create next-app web --ts --tailwind --app --eslint
+cd web && pnpm add @mezo-org/passport @rainbow-me/rainbowkit wagmi viem@2.x @tanstack/react-query
+npx shadcn@latest init
+```
+
+Mezo Passport is built on RainbowKit. Wrap the app with `WagmiProvider`
+(`config={getConfig({ appName: "Lifeline" })}` from `@mezo-org/passport`),
+`QueryClientProvider`, then `RainbowKitProvider initialChain={mezoTestnet}`.
+In Next.js App Router this goes in a `"use client"` `providers.tsx` that
+`app/layout.tsx` renders; Mezo's example is a plain React entry file.
+Also import `@rainbow-me/rainbowkit/styles.css`.
+
+`web/.env.local`: `NEXT_PUBLIC_RPC_URL=https://rpc.test.mezo.org`, `NEXT_PUBLIC_CHAIN_ID=31611`,
+`NEXT_PUBLIC_FACTORY_ADDRESS`, `NEXT_PUBLIC_MARKET_ADDRESS`, `NEXT_PUBLIC_PRICER_ADDRESS`.
+
+## .gitignore (repo root)
+```
+.env
+.env.local
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+node_modules/
+.next/
+```

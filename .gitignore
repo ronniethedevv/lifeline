@@ -1,0 +1,7 @@
+.env
+.env.local
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+node_modules/
+.next/
