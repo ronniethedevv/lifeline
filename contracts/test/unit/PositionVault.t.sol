@@ -20,6 +20,7 @@ contract PositionVaultTest is Test {
 
     address internal alice = makeAddr("alice");
     address internal mallory = makeAddr("mallory");
+    address internal market = makeAddr("market");
 
     uint256 internal constant DEBT = 1800e18;
     uint256 internal constant COLL = 1 ether;
@@ -34,10 +35,9 @@ contract PositionVaultTest is Test {
     }
 
     function _newVault(address owner_) internal returns (PositionVault) {
-        return
-            new PositionVault(
-                owner_, IBorrowerOperations(address(bo)), ITroveManager(address(tm)), IERC20(address(musd))
-            );
+        return new PositionVault(
+            owner_, IBorrowerOperations(address(bo)), ITroveManager(address(tm)), IERC20(address(musd)), market
+        );
     }
 
     function _open() internal {
@@ -54,6 +54,7 @@ contract PositionVaultTest is Test {
         assertEq(address(vault.musd()), address(musd));
         assertEq(vault.activePool(), address(bo.activePool()));
         assertEq(vault.collSurplusPool(), address(bo.collSurplusPool()));
+        assertEq(vault.market(), market);
     }
 
     function test_constructor_revertsOnZeroOwner() public {
@@ -63,9 +64,17 @@ contract PositionVaultTest is Test {
 
     function test_constructor_revertsOnZeroDependency() public {
         vm.expectRevert(PositionVault.ZeroAddress.selector);
-        new PositionVault(alice, IBorrowerOperations(address(bo)), ITroveManager(address(0)), IERC20(address(musd)));
+        new PositionVault(
+            alice, IBorrowerOperations(address(bo)), ITroveManager(address(0)), IERC20(address(musd)), market
+        );
         vm.expectRevert(PositionVault.ZeroAddress.selector);
-        new PositionVault(alice, IBorrowerOperations(address(bo)), ITroveManager(address(tm)), IERC20(address(0)));
+        new PositionVault(
+            alice, IBorrowerOperations(address(bo)), ITroveManager(address(tm)), IERC20(address(0)), market
+        );
+        vm.expectRevert(PositionVault.ZeroAddress.selector);
+        new PositionVault(
+            alice, IBorrowerOperations(address(bo)), ITroveManager(address(tm)), IERC20(address(musd)), address(0)
+        );
     }
 
     // ------------------------------------------------------------ open
@@ -438,6 +447,242 @@ contract PositionVaultTest is Test {
         vault.optIn();
         vm.stopPrank();
         assertTrue(vault.optedIn());
+    }
+
+    // ------------------------------------------------------------ applyRescue / liens
+
+    event LienCreated(uint256 repaid, uint256 fee, uint256 dueBy);
+    event LienCleared(uint256 amount);
+
+    uint256 internal constant REPAY = 300e18;
+    uint256 internal constant FEE = 6e18;
+    uint256 internal constant GRACE = 7 days;
+
+    function _optedInWithTrove() internal {
+        _open();
+        _setTerms();
+        vm.prank(alice);
+        vault.optIn();
+    }
+
+    /// @dev Market sends `repay` MUSD to the vault, then applies the rescue.
+    function _rescue(uint256 repay, uint256 fee, uint256 dueBy) internal {
+        deal(address(musd), address(vault), musd.balanceOf(address(vault)) + repay, true);
+        vm.prank(market);
+        vault.applyRescue(repay, fee, dueBy, address(0), address(0));
+    }
+
+    function _rescued() internal {
+        _optedInWithTrove();
+        _rescue(REPAY, FEE, block.timestamp + GRACE);
+    }
+
+    function test_applyRescue_repaysDebtAndRecordsLien() public {
+        _optedInWithTrove();
+        uint256 debtBefore = tm.getTroveDebt(address(vault));
+        uint256 dueBy = block.timestamp + GRACE;
+        deal(address(musd), address(vault), REPAY, true);
+
+        vm.expectEmit(false, false, false, true, address(vault));
+        emit LienCreated(REPAY, FEE, dueBy);
+        vm.prank(market);
+        vault.applyRescue(REPAY, FEE, dueBy, address(0), address(0));
+
+        assertEq(tm.getTroveDebt(address(vault)), debtBefore - REPAY);
+        assertEq(musd.balanceOf(address(vault)), 0);
+        (uint256 amount, uint256 due, bool active) = vault.lien();
+        assertEq(amount, REPAY + FEE);
+        assertEq(due, dueBy);
+        assertTrue(active);
+    }
+
+    function test_applyRescue_allowsRepayEqualToMaxRescue() public {
+        _optedInWithTrove();
+        _rescue(MAX_RESCUE, FEE, block.timestamp + GRACE);
+        (uint256 amount,,) = vault.lien();
+        assertEq(amount, MAX_RESCUE + FEE);
+    }
+
+    function test_applyRescue_revertsForNonMarket() public {
+        _optedInWithTrove();
+        deal(address(musd), address(vault), REPAY, true);
+        vm.prank(alice); // not even the owner may apply a rescue
+        vm.expectRevert(PositionVault.NotMarket.selector);
+        vault.applyRescue(REPAY, FEE, block.timestamp + GRACE, address(0), address(0));
+    }
+
+    function test_applyRescue_revertsWhenNotOptedIn() public {
+        _open();
+        _setTerms();
+        deal(address(musd), address(vault), REPAY, true);
+        vm.prank(market);
+        vm.expectRevert(PositionVault.NotOptedIn.selector);
+        vault.applyRescue(REPAY, FEE, block.timestamp + GRACE, address(0), address(0));
+    }
+
+    function test_applyRescue_revertsWhenLienActive() public {
+        _rescued();
+        deal(address(musd), address(vault), REPAY, true);
+        vm.prank(market);
+        vm.expectRevert(PositionVault.LienActive.selector);
+        vault.applyRescue(REPAY, FEE, block.timestamp + GRACE, address(0), address(0));
+    }
+
+    function test_applyRescue_revertsOnZeroRepay() public {
+        _optedInWithTrove();
+        vm.prank(market);
+        vm.expectRevert(PositionVault.ZeroRescue.selector);
+        vault.applyRescue(0, FEE, block.timestamp + GRACE, address(0), address(0));
+    }
+
+    function test_applyRescue_revertsAboveMaxRescue() public {
+        _optedInWithTrove();
+        deal(address(musd), address(vault), MAX_RESCUE + 1, true);
+        vm.prank(market);
+        vm.expectRevert(PositionVault.RescueTooLarge.selector);
+        vault.applyRescue(MAX_RESCUE + 1, FEE, block.timestamp + GRACE, address(0), address(0));
+    }
+
+    function test_applyRescue_revertsOnPastOrCurrentDeadline() public {
+        _optedInWithTrove();
+        deal(address(musd), address(vault), REPAY, true);
+        vm.startPrank(market);
+        vm.expectRevert(PositionVault.InvalidDeadline.selector);
+        vault.applyRescue(REPAY, FEE, block.timestamp, address(0), address(0));
+        vm.expectRevert(PositionVault.InvalidDeadline.selector);
+        vault.applyRescue(REPAY, FEE, block.timestamp - 1, address(0), address(0));
+        vm.stopPrank();
+    }
+
+    function test_applyRescue_revertsWhenVaultNotFunded() public {
+        _optedInWithTrove();
+        deal(address(musd), address(vault), REPAY - 1, true);
+        vm.prank(market);
+        vm.expectRevert(PositionVault.InsufficientRescueFunds.selector);
+        vault.applyRescue(REPAY, FEE, block.timestamp + GRACE, address(0), address(0));
+    }
+
+    function testFuzz_applyRescue_lienEqualsRepayPlusFee(uint256 repay, uint256 fee) public {
+        repay = bound(repay, 1, MAX_RESCUE);
+        fee = bound(fee, 0, 1_000_000e18);
+        _optedInWithTrove();
+        uint256 debtBefore = tm.getTroveDebt(address(vault));
+        _rescue(repay, fee, block.timestamp + GRACE);
+        (uint256 amount,, bool active) = vault.lien();
+        assertEq(amount, repay + fee);
+        assertLe(amount, MAX_RESCUE + fee); // invariant 3
+        assertTrue(active);
+        assertEq(tm.getTroveDebt(address(vault)), debtBefore - repay);
+    }
+
+    // --- what an active lien blocks
+
+    function test_withdrawColl_revertsWhileLienActive() public {
+        _rescued();
+        vm.prank(alice);
+        vm.expectRevert(PositionVault.LienActive.selector);
+        vault.withdrawColl(0.1 ether, address(0), address(0));
+    }
+
+    function test_close_revertsWhileLienActive() public {
+        _rescued();
+        vm.prank(alice);
+        vm.expectRevert(PositionVault.LienActive.selector);
+        vault.close();
+    }
+
+    function test_borrow_revertsWhileLienActive() public {
+        _rescued();
+        vm.prank(alice);
+        vm.expectRevert(PositionVault.LienActive.selector);
+        vault.borrow(100e18, address(0), address(0));
+    }
+
+    function test_optOut_revertsWhileLienActive() public {
+        _rescued();
+        vm.prank(alice);
+        vm.expectRevert(PositionVault.LienActive.selector);
+        vault.optOut();
+    }
+
+    function test_setRescueTerms_revertsWhileLienActive() public {
+        _rescued();
+        vm.prank(alice);
+        vm.expectRevert(PositionVault.LienActive.selector);
+        vault.setRescueTerms(TRIGGER, TARGET, MAX_RESCUE);
+    }
+
+    function test_claimCollateral_revertsWhileLienActive() public {
+        _rescued();
+        bo.seedSurplus{value: 0.3 ether}(address(vault));
+        vm.prank(alice);
+        vm.expectRevert(PositionVault.LienActive.selector);
+        vault.claimCollateral();
+    }
+
+    // --- what stays allowed (none weakens the lien holder)
+
+    function test_addColl_repay_refinance_allowedWhileLienActive() public {
+        _rescued();
+        vm.startPrank(alice);
+        vault.addColl{value: 0.1 ether}(address(0), address(0));
+        musd.approve(address(vault), 50e18);
+        vault.repay(50e18, address(0), address(0));
+        vault.refinance(address(0), address(0));
+        vm.stopPrank();
+        assertEq(tm.getTroveColl(address(vault)), COLL + 0.1 ether);
+        assertEq(bo.refinanceCount(address(vault)), 1);
+    }
+
+    // --- clearLien
+
+    function test_clearLien_clearsAndEmits() public {
+        _rescued();
+        vm.expectEmit(false, false, false, true, address(vault));
+        emit LienCleared(REPAY + FEE);
+        vm.prank(market);
+        vault.clearLien();
+        (uint256 amount, uint256 dueBy, bool active) = vault.lien();
+        assertEq(amount, 0);
+        assertEq(dueBy, 0);
+        assertFalse(active);
+    }
+
+    function test_clearLien_revertsForNonMarket() public {
+        _rescued();
+        vm.prank(alice);
+        vm.expectRevert(PositionVault.NotMarket.selector);
+        vault.clearLien();
+    }
+
+    function test_clearLien_revertsWithoutActiveLien() public {
+        vm.prank(market);
+        vm.expectRevert(PositionVault.NoActiveLien.selector);
+        vault.clearLien();
+    }
+
+    function test_clearLien_unblocksVault() public {
+        _rescued();
+        vm.prank(market);
+        vault.clearLien();
+
+        uint256 before = alice.balance;
+        vm.startPrank(alice);
+        vault.withdrawColl(0.1 ether, address(0), address(0));
+        vault.borrow(10e18, address(0), address(0));
+        vault.optOut();
+        vm.stopPrank();
+        assertEq(alice.balance, before + 0.1 ether);
+        assertFalse(vault.optedIn());
+    }
+
+    function test_applyRescue_worksAgainAfterClear() public {
+        _rescued();
+        vm.prank(market);
+        vault.clearLien();
+        _rescue(REPAY, FEE, block.timestamp + GRACE);
+        (,, bool active) = vault.lien();
+        assertTrue(active);
     }
 
     // ------------------------------------------------------------ receive

@@ -23,6 +23,8 @@ contract VaultFactory {
     ITroveManager public immutable troveManager;
     /// @notice MUSD token passed to every vault.
     IERC20 public immutable musd;
+    /// @notice RescueMarket passed to every vault.
+    address public immutable market;
 
     address[] internal _allVaults;
     mapping(address owner => address[] vaults) internal _vaultsOf;
@@ -30,11 +32,13 @@ contract VaultFactory {
     /// @param _borrowerOperations MUSD BorrowerOperations
     /// @param _troveManager MUSD TroveManager
     /// @param _musd MUSD token
-    constructor(IBorrowerOperations _borrowerOperations, ITroveManager _troveManager, IERC20 _musd) {
+    /// @param _market RescueMarket
+    constructor(IBorrowerOperations _borrowerOperations, ITroveManager _troveManager, IERC20 _musd, address _market) {
         if (
             address(_borrowerOperations) == address(0) || address(_troveManager) == address(0)
-                || address(_musd) == address(0)
+                || address(_musd) == address(0) || _market == address(0)
         ) revert ZeroAddress();
+        market = _market;
         borrowerOperations = _borrowerOperations;
         troveManager = _troveManager;
         musd = _musd;
@@ -43,7 +47,7 @@ contract VaultFactory {
     /// @notice Deploys a new PositionVault owned by the caller.
     /// @return vault Address of the new vault
     function createVault() external returns (address vault) {
-        vault = address(new PositionVault(msg.sender, borrowerOperations, troveManager, musd));
+        vault = address(new PositionVault(msg.sender, borrowerOperations, troveManager, musd, market));
         _allVaults.push(vault);
         _vaultsOf[msg.sender].push(vault);
         emit VaultCreated(msg.sender, vault);

@@ -34,12 +34,14 @@ Owns exactly one MUSD trove. Holds BTC (native) and MUSD while passing them thro
 - Owner functions: `open(debt, hints)` payable, `addColl` payable, `withdrawColl`,
   `borrow`, `repay`, `close`, `refinance`, `setRescueTerms(trigger, target, maxRescue)`,
   `optIn()/optOut()`.
-- Market-only functions: `applyRescue(amount, fee, deadline)`, `seizeForLien(btcAmount)`.
+- Market-only functions: `applyRescue(amount, fee, dueBy, hints)`, `clearLien()`, `seizeForLien(btcAmount)`.
+  The market address is an immutable constructor arg of the factory and every vault.
 - Lien state: `{ amount, dueBy, active }` (amount includes fee).
 - Rules:
-  - While a lien is active: `withdrawColl` and `close` revert unless the lien is repaid in
-    the same call; `borrow` reverts.
-  - `optOut()` reverts while a lien is active.
+  - While a lien is active: `withdrawColl`, `close`, `borrow`, `claimCollateral`, `optOut` and
+    `setRescueTerms` revert. Wave 1: the borrower repays via `RescueMarket.repayLien` first
+    (2 txs); a single-call repay-and-withdraw is a possible Wave 2 addition (decision T1.3).
+  - `addColl`, `repay`, `refinance` stay allowed (none weakens the lien holder).
   - `seizeForLien` only after `dueBy`, only up to lien value + penalty at current price.
 - Forwards BTC received from MUSD (withdrawals, surplus claims) to owner, except during
   seizure.
@@ -92,6 +94,9 @@ Zero-order Sugeno fuzzy system, all fixed-point (1e18), no `exp`.
 - Closing needs `debt − 200` MUSD, which exceeds what was borrowed (fee + interest): the vault must
   receive extra MUSD from its owner to close.
 - Mezo's public RPC is flaky (dropped TLS, spurious nulls): retry reads; never blind-retry sends.
+- `repayMUSD` reverts if net debt would fall below `minNetDebt` (1,800). So a rescue can repay at
+  most `net debt − minNetDebt`; a trove at the minimum debt cannot be rescued by repayment
+  (fork-tested, T1.3). RescueMarket must cap the repay accordingly (T1.6).
 
 ## 4. Invariants (enforced by tests)
 1. A vault's trove is only mutated by its owner or by RescueMarket via `applyRescue` /
@@ -113,6 +118,8 @@ Zero-order Sugeno fuzzy system, all fixed-point (1e18), no `exp`.
 - **Price manipulation**: Mezo's PriceFeed is the only price source; do not add a second
   manipulable one.
 - **Keeper liveness**: anyone can call `rescue`; the tip makes it profitable.
+- **Small troves are unrescuable**: repay can't go below `minNetDebt`, so troves near 1,800 MUSD
+  net debt have little or no rescue headroom. Surface this in the UI at opt-in (T1.3 finding).
 
 ## 6. Stack
 | Layer | Choice | Why |

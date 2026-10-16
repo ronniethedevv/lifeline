@@ -24,6 +24,13 @@ contract PositionVault is ReentrancyGuard {
     error TermsNotSet();
     error AlreadyOptedIn();
     error NotOptedIn();
+    error NotMarket();
+    error LienActive();
+    error NoActiveLien();
+    error ZeroRescue();
+    error RescueTooLarge();
+    error InvalidDeadline();
+    error InsufficientRescueFunds();
 
     /// @notice Borrower-chosen rescue terms.
     /// @param triggerICR Rescue allowed when ICR falls below this // 1e18 = 100%
@@ -35,6 +42,16 @@ contract PositionVault is ReentrancyGuard {
         uint256 maxRescue;
     }
 
+    /// @notice A rescue lien: the market's senior claim on the vault.
+    /// @param amount MUSD owed to the market: repaid debt + fee // 1e18
+    /// @param dueBy Timestamp after which the market may claim BTC (T1.7)
+    /// @param active Whether the lien is outstanding
+    struct Lien {
+        uint256 amount;
+        uint256 dueBy;
+        bool active;
+    }
+
     /// @notice Emitted when the owner sets rescue terms.
     /// @param triggerICR Rescue trigger // 1e18 = 100%
     /// @param targetICR Rescue target // 1e18 = 100%
@@ -44,6 +61,14 @@ contract PositionVault is ReentrancyGuard {
     event OptedIn();
     /// @notice Emitted when the owner opts the vault out of rescues.
     event OptedOut();
+    /// @notice Emitted when the market rescues the vault and records a lien.
+    /// @param repaid MUSD debt repaid by the market // 1e18
+    /// @param fee Rescue fee added to the lien // 1e18
+    /// @param dueBy Lien deadline (unix seconds)
+    event LienCreated(uint256 repaid, uint256 fee, uint256 dueBy);
+    /// @notice Emitted when the market clears a repaid lien.
+    /// @param amount Lien amount that was cleared // 1e18
+    event LienCleared(uint256 amount);
 
     /// @notice Owner of the vault and its position.
     address public immutable owner;
@@ -57,14 +82,29 @@ contract PositionVault is ReentrancyGuard {
     address public immutable activePool;
     /// @notice MUSD CollSurplusPool: sends surplus BTC on claimCollateral.
     address public immutable collSurplusPool;
+    /// @notice RescueMarket: the only caller of applyRescue / clearLien.
+    address public immutable market;
 
     /// @notice Current rescue terms (all zero until set).
     RescueTerms public rescueTerms;
     /// @notice Whether the vault can currently be rescued.
     bool public optedIn;
+    /// @notice Outstanding rescue lien (inactive when zeroed).
+    Lien public lien;
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
+        _;
+    }
+
+    modifier onlyMarket() {
+        if (msg.sender != market) revert NotMarket();
+        _;
+    }
+
+    /// @dev Invariant 2: while a lien is active, collateral stays and the position can't be weakened.
+    modifier noLien() {
+        if (lien.active) revert LienActive();
         _;
     }
 
@@ -73,12 +113,20 @@ contract PositionVault is ReentrancyGuard {
     /// @param _borrowerOperations MUSD BorrowerOperations
     /// @param _troveManager MUSD TroveManager
     /// @param _musd MUSD token
-    constructor(address _owner, IBorrowerOperations _borrowerOperations, ITroveManager _troveManager, IERC20 _musd) {
+    /// @param _market RescueMarket
+    constructor(
+        address _owner,
+        IBorrowerOperations _borrowerOperations,
+        ITroveManager _troveManager,
+        IERC20 _musd,
+        address _market
+    ) {
         if (
             _owner == address(0) || address(_borrowerOperations) == address(0) || address(_troveManager) == address(0)
-                || address(_musd) == address(0)
+                || address(_musd) == address(0) || _market == address(0)
         ) revert ZeroAddress();
         owner = _owner;
+        market = _market;
         borrowerOperations = _borrowerOperations;
         troveManager = _troveManager;
         musd = _musd;
@@ -107,7 +155,7 @@ contract PositionVault is ReentrancyGuard {
     /// @param amount BTC to withdraw // 1e18
     /// @param upperHint Insert-position hint
     /// @param lowerHint Insert-position hint
-    function withdrawColl(uint256 amount, address upperHint, address lowerHint) external onlyOwner nonReentrant {
+    function withdrawColl(uint256 amount, address upperHint, address lowerHint) external onlyOwner noLien nonReentrant {
         borrowerOperations.withdrawColl(amount, upperHint, lowerHint);
         _sendBTC(owner, amount);
     }
@@ -116,7 +164,7 @@ contract PositionVault is ReentrancyGuard {
     /// @param amount MUSD to borrow // 1e18
     /// @param upperHint Insert-position hint
     /// @param lowerHint Insert-position hint
-    function borrow(uint256 amount, address upperHint, address lowerHint) external onlyOwner nonReentrant {
+    function borrow(uint256 amount, address upperHint, address lowerHint) external onlyOwner noLien nonReentrant {
         borrowerOperations.withdrawMUSD(amount, upperHint, lowerHint);
         musd.safeTransfer(owner, amount);
     }
@@ -134,7 +182,7 @@ contract PositionVault is ReentrancyGuard {
     ///         the debt (excluding gas compensation), then sends all BTC and any MUSD left to the owner.
     /// @dev closeTrove accrues interest and applies pending redistributions before burning
     ///      `debt - gas compensation`; getEntireDebtAndColl includes both, so the pull is exact.
-    function close() external onlyOwner nonReentrant {
+    function close() external onlyOwner noLien nonReentrant {
         (, uint256 principal, uint256 interest,,,) = troveManager.getEntireDebtAndColl(address(this));
         uint256 toBurn = principal + interest - borrowerOperations.MUSD_GAS_COMPENSATION();
         uint256 held = musd.balanceOf(address(this));
@@ -155,7 +203,7 @@ contract PositionVault is ReentrancyGuard {
     }
 
     /// @notice Claims surplus BTC left after a liquidation or redemption and sends it to the owner.
-    function claimCollateral() external onlyOwner nonReentrant {
+    function claimCollateral() external onlyOwner noLien nonReentrant {
         borrowerOperations.claimCollateral();
         _sendBTC(owner, address(this).balance);
     }
@@ -165,7 +213,7 @@ contract PositionVault is ReentrancyGuard {
     /// @param triggerICR Rescue allowed below this ICR // 1e18 = 100%
     /// @param targetICR ICR a rescue restores // 1e18 = 100%
     /// @param maxRescue Largest MUSD amount a rescue may repay // 1e18
-    function setRescueTerms(uint256 triggerICR, uint256 targetICR, uint256 maxRescue) external onlyOwner {
+    function setRescueTerms(uint256 triggerICR, uint256 targetICR, uint256 maxRescue) external onlyOwner noLien {
         if (triggerICR <= troveManager.MCR() || targetICR <= triggerICR || maxRescue == 0) revert InvalidTerms();
         rescueTerms = RescueTerms(triggerICR, targetICR, maxRescue);
         emit TermsSet(triggerICR, targetICR, maxRescue);
@@ -180,10 +228,45 @@ contract PositionVault is ReentrancyGuard {
     }
 
     /// @notice Opts the vault out of rescues.
-    function optOut() external onlyOwner {
+    function optOut() external onlyOwner noLien {
         if (!optedIn) revert NotOptedIn();
         optedIn = false;
         emit OptedOut();
+    }
+
+    /// @notice Repays `repayAmount` of the trove's debt with MUSD the market already sent to the
+    ///         vault, and records a lien of `repayAmount + fee` due by `dueBy`.
+    /// @dev The market checks the trigger and sizes the repay (T1.6). Repaying debt only raises
+    ///      ICR (invariant 4). Lien <= maxRescue + fee holds by the maxRescue check (invariant 3).
+    /// @param repayAmount MUSD debt to repay, <= maxRescue // 1e18
+    /// @param fee Rescue fee owed on top // 1e18
+    /// @param dueBy Lien deadline, must be in the future (unix seconds)
+    /// @param upperHint Insert-position hint
+    /// @param lowerHint Insert-position hint
+    function applyRescue(uint256 repayAmount, uint256 fee, uint256 dueBy, address upperHint, address lowerHint)
+        external
+        onlyMarket
+        noLien
+        nonReentrant
+    {
+        if (!optedIn) revert NotOptedIn();
+        if (repayAmount == 0) revert ZeroRescue();
+        if (repayAmount > rescueTerms.maxRescue) revert RescueTooLarge();
+        if (dueBy <= block.timestamp) revert InvalidDeadline();
+        if (musd.balanceOf(address(this)) < repayAmount) revert InsufficientRescueFunds();
+
+        lien = Lien(repayAmount + fee, dueBy, true);
+        emit LienCreated(repayAmount, fee, dueBy);
+
+        borrowerOperations.repayMUSD(repayAmount, upperHint, lowerHint);
+    }
+
+    /// @notice Clears the lien once the market has been repaid (RescueMarket.repayLien, T1.7).
+    function clearLien() external onlyMarket {
+        if (!lien.active) revert NoActiveLien();
+        uint256 amount = lien.amount;
+        delete lien;
+        emit LienCleared(amount);
     }
 
     /// @notice Accepts BTC only from MUSD's pools (withdrawals, close, surplus claims).

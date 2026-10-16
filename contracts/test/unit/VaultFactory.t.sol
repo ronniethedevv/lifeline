@@ -17,11 +17,15 @@ contract VaultFactoryTest is Test {
 
     address internal alice = makeAddr("alice");
     address internal bob = makeAddr("bob");
+    address internal market = makeAddr("market");
 
     function setUp() public {
         bo = new MockBorrowerOperations();
         factory = new VaultFactory(
-            IBorrowerOperations(address(bo)), ITroveManager(address(bo.troveManager())), IERC20(address(bo.musd()))
+            IBorrowerOperations(address(bo)),
+            ITroveManager(address(bo.troveManager())),
+            IERC20(address(bo.musd())),
+            market
         );
     }
 
@@ -29,15 +33,18 @@ contract VaultFactoryTest is Test {
         assertEq(address(factory.borrowerOperations()), address(bo));
         assertEq(address(factory.troveManager()), address(bo.troveManager()));
         assertEq(address(factory.musd()), address(bo.musd()));
+        assertEq(factory.market(), market);
     }
 
     function test_constructor_revertsOnZeroAddress() public {
         vm.expectRevert(VaultFactory.ZeroAddress.selector);
-        new VaultFactory(IBorrowerOperations(address(0)), ITroveManager(address(1)), IERC20(address(1)));
+        new VaultFactory(IBorrowerOperations(address(0)), ITroveManager(address(1)), IERC20(address(1)), market);
         vm.expectRevert(VaultFactory.ZeroAddress.selector);
-        new VaultFactory(IBorrowerOperations(address(1)), ITroveManager(address(0)), IERC20(address(1)));
+        new VaultFactory(IBorrowerOperations(address(1)), ITroveManager(address(0)), IERC20(address(1)), market);
         vm.expectRevert(VaultFactory.ZeroAddress.selector);
-        new VaultFactory(IBorrowerOperations(address(1)), ITroveManager(address(1)), IERC20(address(0)));
+        new VaultFactory(IBorrowerOperations(address(1)), ITroveManager(address(1)), IERC20(address(0)), market);
+        vm.expectRevert(VaultFactory.ZeroAddress.selector);
+        new VaultFactory(IBorrowerOperations(address(1)), ITroveManager(address(1)), IERC20(address(1)), address(0));
     }
 
     function test_createVault_deploysVaultOwnedByCaller() public {
@@ -47,6 +54,7 @@ contract VaultFactoryTest is Test {
         assertEq(address(vault.borrowerOperations()), address(bo));
         assertEq(address(vault.troveManager()), address(bo.troveManager()));
         assertEq(address(vault.musd()), address(bo.musd()));
+        assertEq(vault.market(), market);
     }
 
     function test_createVault_emitsVaultCreated() public {

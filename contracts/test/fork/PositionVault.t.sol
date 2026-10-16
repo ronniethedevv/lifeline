@@ -30,10 +30,11 @@ contract PositionVaultForkTest is MezoForkBase {
     VaultFactory internal factory;
     PositionVault internal vault;
     address internal alice = makeAddr("alice");
+    address internal market = makeAddr("market"); // stand-in until RescueMarket (T1.5)
 
     function setUp() public override {
         super.setUp();
-        factory = new VaultFactory(BO, TM, MUSD);
+        factory = new VaultFactory(BO, TM, MUSD, market);
         vm.prank(alice);
         vault = PositionVault(payable(factory.createVault()));
         vm.deal(alice, 10 ether);
@@ -51,7 +52,11 @@ contract PositionVaultForkTest is MezoForkBase {
     }
 
     function _open() internal returns (uint256 debt, uint256 coll) {
-        debt = BO.minNetDebt();
+        return _openWithDebt(BO.minNetDebt());
+    }
+
+    function _openWithDebt(uint256 debt_) internal returns (uint256 debt, uint256 coll) {
+        debt = debt_;
         uint256 composite = debt + BO.getBorrowingFee(debt) + BO.MUSD_GAS_COMPENSATION();
         coll = composite * TARGET_ICR / PF.fetchPrice();
         (address u, address l) = _hints(coll, composite);
@@ -149,6 +154,66 @@ contract PositionVaultForkTest is MezoForkBase {
         assertTrue(vault.optedIn());
         (uint256 trigger,,) = vault.rescueTerms();
         assertEq(trigger, mcr + 1);
+    }
+
+    function _rescueSetup() internal {
+        vm.startPrank(alice);
+        vault.setRescueTerms(1.3e18, 1.6e18, 500e18);
+        vault.optIn();
+        vm.stopPrank();
+    }
+
+    /// @dev Real MUSD constraint: repayMUSD reverts if net debt would fall below minNetDebt, so a
+    ///      rescue can repay at most (net debt - minNetDebt). A trove at the minimum is unrescuable.
+    function test_applyRescue_onRealMusd_revertsBelowMinNetDebt() public {
+        (, uint256 coll) = _open(); // at minNetDebt: no headroom
+        _rescueSetup();
+        uint256 debt = TM.getTroveDebt(address(vault));
+        deal(address(MUSD), address(vault), 300e18, true);
+        (address u, address l) = _hints(coll, debt - 300e18);
+        vm.prank(market);
+        vm.expectRevert("BorrowerOps: Trove's net debt must be greater than minimum");
+        vault.applyRescue(300e18, 6e18, block.timestamp + 7 days, u, l);
+        (,, bool active) = vault.lien();
+        assertFalse(active, "no lien when the repay reverts");
+    }
+
+    function test_applyRescue_onRealMusd_recordsLienAndBlocksWithdraw() public {
+        (, uint256 coll) = _openWithDebt(BO.minNetDebt() + 1000e18); // headroom above min debt
+        _rescueSetup();
+
+        uint256 price = PF.fetchPrice();
+        uint256 icrBefore = TM.getCurrentICR(address(vault), price);
+        uint256 debtBefore = TM.getTroveDebt(address(vault));
+        uint256 repay = 300e18;
+        uint256 fee = 6e18;
+        uint256 dueBy = block.timestamp + 7 days;
+
+        // Stand-in market funds the vault, then applies the rescue.
+        deal(address(MUSD), address(vault), repay, true);
+        (address u, address l) = _hints(coll, debtBefore - repay);
+        vm.prank(market);
+        vault.applyRescue(repay, fee, dueBy, u, l);
+
+        assertEq(TM.getTroveDebt(address(vault)), debtBefore - repay, "debt down by repay");
+        assertGt(TM.getCurrentICR(address(vault), price), icrBefore, "ICR up (invariant 4)");
+        assertEq(MUSD.balanceOf(address(vault)), 0, "vault spent the rescue MUSD");
+        (uint256 amount, uint256 due, bool active) = vault.lien();
+        assertEq(amount, repay + fee);
+        assertEq(due, dueBy);
+        assertTrue(active);
+
+        vm.prank(alice);
+        vm.expectRevert(PositionVault.LienActive.selector);
+        vault.withdrawColl(0.001 ether, address(0), address(0));
+
+        vm.prank(market);
+        vault.clearLien();
+        uint256 aliceBtc = alice.balance;
+        (u, l) = _hintsNow();
+        vm.prank(alice);
+        vault.withdrawColl(0.001 ether, u, l);
+        assertEq(alice.balance, aliceBtc + 0.001 ether, "withdraw works after clear");
     }
 
     function test_vault_readsRealPoolAddresses() public view {
