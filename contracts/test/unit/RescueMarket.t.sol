@@ -1,28 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Test} from "forge-std/Test.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Errors} from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 import {RescueMarket} from "../../src/RescueMarket.sol";
-import {MockMUSD} from "./mocks/MockMusd.sol";
+import {MarketFixture} from "./utils/MarketFixture.sol";
 
-/// @dev Test-only: simulates fee income (T1.6/T1.7 add the real sources) so share-price
-///      rounding can be fuzzed away from the trivial 1:1000 price.
-contract RescueMarketHarness is RescueMarket {
-    constructor(IERC20 _musd) RescueMarket(_musd) {}
-
-    function harnessAccrue(uint256 amount) external {
-        _totalManaged += amount;
-    }
-}
-
-contract RescueMarketTest is Test {
+/// @notice T1.5: provider deposits/withdrawals and share math.
+contract RescueMarketTest is MarketFixture {
     event Deposited(address indexed provider, uint256 assets, uint256 shares);
     event Withdrawn(address indexed provider, uint256 shares, uint256 assets);
-
-    MockMUSD internal musd;
-    RescueMarketHarness internal market;
 
     address internal alice = makeAddr("alice");
     address internal bob = makeAddr("bob");
@@ -31,35 +17,11 @@ contract RescueMarketTest is Test {
     uint256 internal constant MAX_AMOUNT = 1e30; // 1e12 MUSD
     uint256 internal constant VIRTUAL_SHARES = 1e3;
 
-    function setUp() public {
-        musd = new MockMUSD(); // minter = this test
-        market = new RescueMarketHarness(IERC20(address(musd)));
-    }
-
-    function _fund(address who, uint256 amount) internal {
-        musd.mint(who, amount);
-        vm.prank(who);
-        musd.approve(address(market), type(uint256).max);
-    }
-
-    function _deposit(address who, uint256 amount) internal returns (uint256 shares) {
-        _fund(who, amount);
-        vm.prank(who);
-        shares = market.deposit(amount);
-    }
-
-    /// @dev Skips (returns 0) when the holding rounds to 0 MUSD: withdraw would revert ZeroAmount.
     function _withdrawAll(address who) internal returns (uint256 assets) {
         uint256 shares = market.sharesOf(who);
         if (shares == 0 || market.previewWithdraw(shares) == 0) return 0;
         vm.prank(who);
         assets = market.withdraw(shares);
-    }
-
-    /// @dev Fee income: MUSD arrives and is counted as pool assets.
-    function _accrue(uint256 amount) internal {
-        musd.mint(address(market), amount);
-        market.harnessAccrue(amount);
     }
 
     // ------------------------------------------------------------ constructor
@@ -68,11 +30,6 @@ contract RescueMarketTest is Test {
         assertEq(address(market.musd()), address(musd));
         assertEq(market.totalAssets(), 0);
         assertEq(market.totalShares(), 0);
-    }
-
-    function test_constructor_revertsOnZeroMusd() public {
-        vm.expectRevert(RescueMarket.ZeroAddress.selector);
-        new RescueMarket(IERC20(address(0)));
     }
 
     // ------------------------------------------------------------ deposit
@@ -125,7 +82,7 @@ contract RescueMarketTest is Test {
     }
 
     function test_deposit_revertsWithoutApproval() public {
-        musd.mint(alice, 100e18);
+        deal(address(musd), alice, 100e18, true);
         vm.prank(alice);
         vm.expectRevert(
             abi.encodeWithSelector(IERC20Errors.ERC20InsufficientAllowance.selector, address(market), 0, 100e18)
@@ -209,7 +166,7 @@ contract RescueMarketTest is Test {
 
     function test_donation_isIgnoredBySharePrice() public {
         _deposit(alice, 1000e18);
-        musd.mint(address(market), 1_000_000e18); // direct transfer, not a deposit
+        deal(address(musd), address(market), musd.balanceOf(address(market)) + 1_000_000e18, true); // direct transfer
         assertEq(market.totalAssets(), 1000e18);
         assertEq(market.previewWithdraw(market.sharesOf(alice)), 1000e18);
     }
@@ -221,7 +178,7 @@ contract RescueMarketTest is Test {
         victimAssets = bound(victimAssets, 1, MAX_AMOUNT);
 
         _deposit(attacker, 1);
-        musd.mint(attacker, donation);
+        deal(address(musd), attacker, musd.balanceOf(attacker) + donation, true);
         vm.prank(attacker);
         musd.transfer(address(market), donation); // try to inflate the share price
 

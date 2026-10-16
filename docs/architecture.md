@@ -28,6 +28,10 @@ keeper is the only off-chain process.
 - `createVault() returns (address)` — deploys a PositionVault owned by `msg.sender`.
 - One vault per position (MUSD binds one trove to one address).
 - Emits `VaultCreated(owner, vault)`. Keeps `vaultsOf(owner)` and `allVaults` for keepers.
+- `isVault(address)`: true only for vaults it created. RescueMarket rescues only these, so a fake
+  "vault" can't take pool MUSD without recording a lien (T1.6).
+- Deploy wiring: pricer → predict the market's address (deployer nonce + 1) → factory(market =
+  predicted) → market. The market constructor reverts unless `factory.market() == address(this)`.
 
 ### PositionVault
 Owns exactly one MUSD trove. Holds BTC (native) and MUSD while passing them through.
@@ -36,7 +40,7 @@ Owns exactly one MUSD trove. Holds BTC (native) and MUSD while passing them thro
   `optIn()/optOut()`.
 - Market-only functions: `applyRescue(amount, fee, dueBy, hints)`, `clearLien()`, `seizeForLien(btcAmount)`.
   The market address is an immutable constructor arg of the factory and every vault.
-- Lien state: `{ amount, dueBy, active }` (amount includes fee).
+- Lien state: `{ amount, dueBy, active }` (amount = repay + fee + keeper tip).
 - Rules:
   - While a lien is active: `withdrawColl`, `close`, `borrow`, `claimCollateral`, `optOut` and
     `setRescueTerms` revert. Wave 1: the borrower repays via `RescueMarket.repayLien` first
@@ -49,11 +53,18 @@ Owns exactly one MUSD trove. Holds BTC (native) and MUSD while passing them thro
 ### RescueMarket
 - Providers: `deposit(musd)` → shares; `withdraw(shares)` → MUSD + accrued fees (pro rata,
   ERC-4626-style share math, no external token needed in Wave 1).
-- `rescue(vault)` (anyone):
-  1. Check vault opted in, no active lien, ICR < trigger.
-  2. Compute repay amount to reach target ICR, capped by `maxRescue` and pool liquidity.
-  3. Get fee from FuzzyFeePricer.
-  4. Transfer MUSD to vault, call `vault.applyRescue`, pay keeper tip.
+- `rescue(vault, hints)` (anyone):
+  1. Check `factory.isVault`, opted in, no active lien, ICR < trigger (live PriceFeed price).
+  2. Repay = debt − coll·price/target, capped by `maxRescue`, pool liquidity (repay + tip must
+     fit) and MUSD's min-net-debt headroom (`net debt − minNetDebt`, T1.3). Partial if capped.
+  3. Fee = repay × `pricer.feeBps(icr, repay/collValue, TCR)` (rounded up). Wave 1 pricer:
+     MinimalFeePricer; Wave 2: FuzzyFeePricer behind the same `IFeePricer`.
+  4. Tip = repay × `tipBps`, paid by the pool to the caller and added to the lien (the borrower
+     pays it). `outstanding += repay + tip`; pool value unchanged (cash → receivable).
+  5. Transfer repay MUSD to vault, call `vault.applyRescue(repay, fee + tip, now + lienTerm)`.
+- `previewRescue(vault)` returns status, ICR, repay, fee, tip and post-rescue NICR (for hints)
+  without reverting: keepers use it for hints, the UI to show cost before signing.
+- Withdrawals are limited to liquid MUSD (`totalAssets − outstanding`).
 - `repayLien(vault)` — borrower pays lien MUSD back; fee goes to providers.
 - `claimLien(vault)` (anyone, after `dueBy`) — seizes BTC; BTC is held by the pool and
   shares carry a claim on it (Wave 1: providers withdraw pro-rata BTC + MUSD).
@@ -102,8 +113,8 @@ Zero-order Sugeno fuzzy system, all fixed-point (1e18), no `exp`.
 1. A vault's trove is only mutated by its owner or by RescueMarket via `applyRescue` /
    `seizeForLien`.
 2. While `lien.active`, the vault's collateral cannot leave except via `seizeForLien`.
-3. `lien.amount ≤ maxRescue + fee` set by the borrower at opt-in time.
-4. A rescue never leaves ICR below the pre-rescue ICR.
+3. `lien.amount ≤ maxRescue + fee + tip`, with `maxRescue` as set when the rescue runs.
+4. A rescue never leaves ICR below the pre-rescue ICR (and never above the target).
 5. Market accounting: `sum(shares value) == MUSD balance + outstanding liens + BTC held
    (valued at price)`, minus realised losses.
 6. No external call before state updates (Checks-Effects-Interactions); every

@@ -65,6 +65,25 @@ contract VaultFactoryTest is Test {
         factory.createVault();
     }
 
+    function test_isVault_trueOnlyForVaultsFromThisFactory() public {
+        vm.prank(alice);
+        address v = factory.createVault();
+        assertTrue(factory.isVault(v));
+        assertFalse(factory.isVault(alice));
+        assertFalse(factory.isVault(address(0)));
+
+        VaultFactory other = new VaultFactory(
+            IBorrowerOperations(address(bo)),
+            ITroveManager(address(bo.troveManager())),
+            IERC20(address(bo.musd())),
+            market
+        );
+        vm.prank(alice);
+        address foreign = other.createVault();
+        assertFalse(factory.isVault(foreign));
+        assertTrue(other.isVault(foreign));
+    }
+
     function test_createVault_tracksVaultsPerOwnerAndGlobally() public {
         vm.startPrank(alice);
         address a1 = factory.createVault();

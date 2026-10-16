@@ -75,6 +75,22 @@ contract MockTroveManager {
         return troves[b].debt;
     }
 
+    uint256 public tcr = 2e18; // settable system TCR
+
+    function setTCR(uint256 _tcr) external {
+        tcr = _tcr;
+    }
+
+    function getTCR(uint256) external view returns (uint256) {
+        return tcr;
+    }
+
+    /// @dev Same formula as MUSD: coll * price / debt, max uint when debt is 0.
+    function getCurrentICR(address b, uint256 price) external view returns (uint256) {
+        if (troves[b].debt == 0) return type(uint256).max;
+        return troves[b].coll * price / troves[b].debt;
+    }
+
     /// @dev Real TM splits debt into principal + interest (+ pending); the mock reports it all as principal.
     function getEntireDebtAndColl(address b)
         external
@@ -82,6 +98,18 @@ contract MockTroveManager {
         returns (uint256, uint256, uint256, uint256, uint256, uint256)
     {
         return (troves[b].coll, troves[b].debt, 0, 0, 0, 0);
+    }
+}
+
+contract MockPriceFeed {
+    uint256 public price = 5000e18;
+
+    function setPrice(uint256 _price) external {
+        price = _price;
+    }
+
+    function fetchPrice() external view returns (uint256) {
+        return price;
     }
 }
 
@@ -103,6 +131,11 @@ contract MockBorrowerOperations {
         troveManager = new MockTroveManager();
         activePool = new MockBTCPool();
         collSurplusPool = new MockBTCPool();
+    }
+
+    /// @dev Test helper: MUSD's minNetDebt is governable.
+    function setMinNetDebt(uint256 value) external {
+        minNetDebt = value;
     }
 
     function getBorrowingFee(uint256 debt) public pure returns (uint256) {
@@ -150,6 +183,11 @@ contract MockBorrowerOperations {
     function repayMUSD(uint256 amount, address, address) external {
         (ITroveManager.Status s, uint256 coll, uint256 debt) = _trove(msg.sender);
         require(s == ITroveManager.Status.active, "BorrowerOps: Trove does not exist or is closed");
+        // Same rule as MUSD: net debt after repay must stay >= minNetDebt.
+        require(
+            debt - MUSD_GAS_COMPENSATION >= amount && debt - MUSD_GAS_COMPENSATION - amount >= minNetDebt,
+            "BorrowerOps: Trove's net debt must be greater than minimum"
+        );
         musd.burn(msg.sender, amount);
         troveManager.set(msg.sender, s, coll, debt - amount);
     }

@@ -22,7 +22,7 @@ contract PositionVaultTest is Test {
     address internal mallory = makeAddr("mallory");
     address internal market = makeAddr("market");
 
-    uint256 internal constant DEBT = 1800e18;
+    uint256 internal constant DEBT = 3000e18; // headroom above minNetDebt so repays are allowed
     uint256 internal constant COLL = 1 ether;
 
     function setUp() public {

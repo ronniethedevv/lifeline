@@ -26,6 +26,9 @@ contract VaultFactory {
     /// @notice RescueMarket passed to every vault.
     address public immutable market;
 
+    /// @notice True for every vault this factory created (RescueMarket only rescues these).
+    mapping(address vault => bool) public isVault;
+
     address[] internal _allVaults;
     mapping(address owner => address[] vaults) internal _vaultsOf;
 
@@ -48,6 +51,7 @@ contract VaultFactory {
     /// @return vault Address of the new vault
     function createVault() external returns (address vault) {
         vault = address(new PositionVault(msg.sender, borrowerOperations, troveManager, musd, market));
+        isVault[vault] = true;
         _allVaults.push(vault);
         _vaultsOf[msg.sender].push(vault);
         emit VaultCreated(msg.sender, vault);
