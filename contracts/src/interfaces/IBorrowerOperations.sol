@@ -73,4 +73,12 @@ interface IBorrowerOperations {
     /// @param _debt Debt amount // 1e18
     /// @return Fee in MUSD // 1e18
     function getBorrowingFee(uint256 _debt) external view returns (uint256);
+
+    /// @notice ActivePool, which holds trove BTC and sends it on withdrawColl / closeTrove.
+    /// @return ActivePool address
+    function activePool() external view returns (address);
+
+    /// @notice CollSurplusPool, which sends surplus BTC on claimCollateral.
+    /// @return CollSurplusPool address
+    function collSurplusPool() external view returns (address);
 }

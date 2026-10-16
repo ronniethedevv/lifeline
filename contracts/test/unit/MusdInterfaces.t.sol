@@ -67,6 +67,8 @@ contract MusdInterfacesTest is Test {
         _check(a, IBorrowerOperations.minNetDebt.selector, "minNetDebt()", "(uint256)");
         _check(a, IBorrowerOperations.MUSD_GAS_COMPENSATION.selector, "MUSD_GAS_COMPENSATION()", "(uint256)");
         _check(a, IBorrowerOperations.getBorrowingFee.selector, "getBorrowingFee(uint256)", "(uint256)");
+        _check(a, IBorrowerOperations.activePool.selector, "activePool()", "(address)");
+        _check(a, IBorrowerOperations.collSurplusPool.selector, "collSurplusPool()", "(address)");
     }
 
     function test_troveManager_matchesPinnedAbi() public view {
