@@ -65,7 +65,7 @@ Common commands:
 ```bash
 forge build
 forge test
-forge test --match-path 'test/fork/*' --fork-url mezo_testnet  # export .env first: set -a; . ./.env; set +a
+FOUNDRY_PROFILE=fork forge test   # fork tests (shanghai + oracle mock); export .env first: set -a; . ./.env; set +a
 forge script script/Deploy.s.sol --rpc-url mezo_testnet --broadcast
 slither .
 ```

@@ -81,6 +81,12 @@ Zero-order Sugeno fuzzy system, all fixed-point (1e18), no `exp`.
 - Inserting/reinserting a trove needs `_upperHint/_lowerHint` from
   `HintHelpers.getApproxHint` + `SortedTroves.findInsertPosition`.
 - Contracts are upgradeable on Mezo's side → pin and recheck ABIs before each deploy.
+- `openTrove(uint256 _debtAmount, address _upperHint, address _lowerHint) payable`, with no
+  max-fee parameter (confirmed in the deployed bytecode, T0.4).
+- PriceFeed reads a Mezo **precompile** oracle at `0x7b7c…0015` and reverts if its price is
+  older than 60s. Forge forks can't execute it → fork tests mock only that address (T0.4).
+- Mezo's own deployed contracts use `PUSH0` (shanghai+); we still deploy london until T0.6.
+- `minNetDebt` and the borrowing rate are governable → read them at runtime, never hard-code.
 
 ## 4. Invariants (enforced by tests)
 1. A vault's trove is only mutated by its owner or by RescueMarket via `applyRescue` /
