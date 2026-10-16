@@ -83,12 +83,18 @@ slither .
 ```
 
 ## Keeper
+TypeScript + viem (Node >= 20.6; `.env` is loaded with Node's built-in `--env-file`, no dotenv).
+Addresses come from `deployments/testnet.json`; `MARKET_ADDRESS` / `FACTORY_ADDRESS` override.
 ```bash
-mkdir keeper && cd keeper
-pnpm init && pnpm add viem dotenv && pnpm add -D typescript tsx @types/node
-npx tsc --init --strict
+cd keeper && pnpm install
+pnpm gen:abis            # regenerate typed ABIs from contracts/out (after `forge build`)
+pnpm start               # DRY RUN (default): logs vaults it would rescue, sends nothing
+pnpm start:live          # LIVE: sends rescues from KEEPER_PRIVATE_KEY (testnet-only wallet)
+pnpm lint && pnpm typecheck && pnpm test   # checks (offline unit tests)
+pnpm test:e2e            # anvil fork of Mezo testnet: deploy, at-risk vault, keeper rescues it (slow)
 ```
-`keeper/.env`: `MEZO_TESTNET_RPC`, `KEEPER_PRIVATE_KEY`, `MARKET_ADDRESS`, `FACTORY_ADDRESS`.
+`keeper/.env` (git-ignored; copy `keeper/.env.example`): `MEZO_TESTNET_RPC`, `KEEPER_PRIVATE_KEY`
+(only for `start:live`), optional `MARKET_ADDRESS`, `FACTORY_ADDRESS`, `POLL_INTERVAL_MS` (default 30000).
 
 ## Web
 ```bash

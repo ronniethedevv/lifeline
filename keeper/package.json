@@ -1,0 +1,31 @@
+{
+  "name": "@lifeline/keeper",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lifeline keeper: watches opted-in vaults and rescues those below their trigger",
+  "type": "module",
+  "engines": {
+    "node": ">=20.6"
+  },
+  "scripts": {
+    "gen:abis": "tsx scripts/gen-abis.ts",
+    "start": "node --env-file-if-exists=.env --import tsx src/main.ts",
+    "start:live": "node --env-file-if-exists=.env --import tsx src/main.ts --live",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "KEEPER_E2E=1 vitest run"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "24.19.2",
+    "eslint": "10.11.0",
+    "tsx": "4.23.15",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.71.0",
+    "vitest": "5.0.3"
+  },
+  "dependencies": {
+    "viem": "2.57.2"
+  }
+}
