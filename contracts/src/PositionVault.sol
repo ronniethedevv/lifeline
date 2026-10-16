@@ -139,7 +139,7 @@ contract PositionVault is ReentrancyGuard {
     /// @param debt MUSD to borrow (fee and gas compensation are added to the trove's debt) // 1e18
     /// @param upperHint Insert-position hint
     /// @param lowerHint Insert-position hint
-    function open(uint256 debt, address upperHint, address lowerHint) external payable onlyOwner nonReentrant {
+    function open(uint256 debt, address upperHint, address lowerHint) external payable nonReentrant onlyOwner {
         borrowerOperations.openTrove{value: msg.value}(debt, upperHint, lowerHint);
         musd.safeTransfer(owner, debt);
     }
@@ -147,7 +147,7 @@ contract PositionVault is ReentrancyGuard {
     /// @notice Adds msg.value BTC to the vault's trove.
     /// @param upperHint Insert-position hint
     /// @param lowerHint Insert-position hint
-    function addColl(address upperHint, address lowerHint) external payable onlyOwner nonReentrant {
+    function addColl(address upperHint, address lowerHint) external payable nonReentrant onlyOwner {
         borrowerOperations.addColl{value: msg.value}(upperHint, lowerHint);
     }
 
@@ -155,7 +155,7 @@ contract PositionVault is ReentrancyGuard {
     /// @param amount BTC to withdraw // 1e18
     /// @param upperHint Insert-position hint
     /// @param lowerHint Insert-position hint
-    function withdrawColl(uint256 amount, address upperHint, address lowerHint) external onlyOwner noLien nonReentrant {
+    function withdrawColl(uint256 amount, address upperHint, address lowerHint) external nonReentrant onlyOwner noLien {
         borrowerOperations.withdrawColl(amount, upperHint, lowerHint);
         _sendBTC(owner, amount);
     }
@@ -164,7 +164,7 @@ contract PositionVault is ReentrancyGuard {
     /// @param amount MUSD to borrow // 1e18
     /// @param upperHint Insert-position hint
     /// @param lowerHint Insert-position hint
-    function borrow(uint256 amount, address upperHint, address lowerHint) external onlyOwner noLien nonReentrant {
+    function borrow(uint256 amount, address upperHint, address lowerHint) external nonReentrant onlyOwner noLien {
         borrowerOperations.withdrawMUSD(amount, upperHint, lowerHint);
         musd.safeTransfer(owner, amount);
     }
@@ -173,8 +173,8 @@ contract PositionVault is ReentrancyGuard {
     /// @param amount MUSD to repay // 1e18
     /// @param upperHint Insert-position hint
     /// @param lowerHint Insert-position hint
-    function repay(uint256 amount, address upperHint, address lowerHint) external onlyOwner nonReentrant {
-        musd.safeTransferFrom(owner, address(this), amount);
+    function repay(uint256 amount, address upperHint, address lowerHint) external nonReentrant onlyOwner {
+        musd.safeTransferFrom(msg.sender, address(this), amount); // msg.sender == owner
         borrowerOperations.repayMUSD(amount, upperHint, lowerHint);
     }
 
@@ -182,11 +182,11 @@ contract PositionVault is ReentrancyGuard {
     ///         the debt (excluding gas compensation), then sends all BTC and any MUSD left to the owner.
     /// @dev closeTrove accrues interest and applies pending redistributions before burning
     ///      `debt - gas compensation`; getEntireDebtAndColl includes both, so the pull is exact.
-    function close() external onlyOwner noLien nonReentrant {
+    function close() external nonReentrant onlyOwner noLien {
         (, uint256 principal, uint256 interest,,,) = troveManager.getEntireDebtAndColl(address(this));
         uint256 toBurn = principal + interest - borrowerOperations.MUSD_GAS_COMPENSATION();
         uint256 held = musd.balanceOf(address(this));
-        if (toBurn > held) musd.safeTransferFrom(owner, address(this), toBurn - held);
+        if (toBurn > held) musd.safeTransferFrom(msg.sender, address(this), toBurn - held); // msg.sender == owner
 
         borrowerOperations.closeTrove();
 
@@ -198,12 +198,12 @@ contract PositionVault is ReentrancyGuard {
     /// @notice Moves the trove to the current interest rate (MUSD adds the fee to the debt).
     /// @param upperHint Insert-position hint
     /// @param lowerHint Insert-position hint
-    function refinance(address upperHint, address lowerHint) external onlyOwner nonReentrant {
+    function refinance(address upperHint, address lowerHint) external nonReentrant onlyOwner {
         borrowerOperations.refinance(upperHint, lowerHint);
     }
 
     /// @notice Claims surplus BTC left after a liquidation or redemption and sends it to the owner.
-    function claimCollateral() external onlyOwner noLien nonReentrant {
+    function claimCollateral() external nonReentrant onlyOwner noLien {
         borrowerOperations.claimCollateral();
         _sendBTC(owner, address(this).balance);
     }
@@ -245,9 +245,9 @@ contract PositionVault is ReentrancyGuard {
     /// @param lowerHint Insert-position hint
     function applyRescue(uint256 repayAmount, uint256 fee, uint256 dueBy, address upperHint, address lowerHint)
         external
+        nonReentrant
         onlyMarket
         noLien
-        nonReentrant
     {
         if (!optedIn) revert NotOptedIn();
         if (repayAmount == 0) revert ZeroRescue();
