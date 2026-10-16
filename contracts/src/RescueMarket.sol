@@ -36,6 +36,7 @@ contract RescueMarket is ReentrancyGuard {
     error LienActive();
     error AboveTrigger();
     error NothingToRescue();
+    error NoActiveLien();
 
     /// @notice Why a vault can or can't be rescued right now.
     enum RescueStatus {
@@ -91,6 +92,13 @@ contract RescueMarket is ReentrancyGuard {
     event Rescued(
         address indexed vault, address indexed keeper, uint256 repaid, uint256 fee, uint256 tip, uint256 dueBy
     );
+
+    /// @notice Emitted when a lien is repaid in full.
+    /// @param vault Vault whose lien was repaid
+    /// @param payer Who paid (owner or anyone else)
+    /// @param principal MUSD returned to the pool (repay + tip) // 1e18
+    /// @param fee Fee booked as provider income // 1e18
+    event LienRepaid(address indexed vault, address indexed payer, uint256 principal, uint256 fee);
 
     /// @dev Virtual shares/assets (OZ ERC4626 decimals-offset pattern, offset 3).
     uint256 internal constant VIRTUAL_SHARES = 1e3;
@@ -225,6 +233,24 @@ contract RescueMarket is ReentrancyGuard {
         musd.safeTransfer(vault, q.repay);
         PositionVault(payable(vault)).applyRescue(q.repay, q.fee + q.tip, dueBy, upperHint, lowerHint);
         if (q.tip > 0) musd.safeTransfer(msg.sender, q.tip);
+    }
+
+    /// @notice Repays `vault`'s lien in full (repay + fee + tip) from the caller's MUSD and
+    ///         clears it. Anyone may pay. The fee becomes provider income; the lent MUSD is liquid
+    ///         again. Allowed after `dueBy` until the lien is claimed (claiming is T1.7b, Wave 2).
+    /// @param vault Rescued vault
+    function repayLien(address vault) external nonReentrant {
+        if (!factory.isVault(vault)) revert NotVault();
+        LienRecord memory rec = lienRecords[vault];
+        if (rec.principal == 0) revert NoActiveLien();
+
+        delete lienRecords[vault];
+        outstanding -= rec.principal;
+        _totalManaged += rec.fee;
+        emit LienRepaid(vault, msg.sender, rec.principal, rec.fee);
+
+        musd.safeTransferFrom(msg.sender, address(this), rec.principal + rec.fee);
+        PositionVault(payable(vault)).clearLien();
     }
 
     /// @notice What `rescue(vault)` would do now. Never reverts for an unrescuable vault: the

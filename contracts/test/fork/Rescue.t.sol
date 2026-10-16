@@ -111,6 +111,43 @@ contract RescueForkTest is LifelineForkBase {
         assertLt(TM.getCurrentICR(address(v), PF.fetchPrice()), TARGET, "partial rescue");
     }
 
+    /// @dev T1.7a: rescue -> repay -> provider earns the fee -> borrower closes and gets all BTC back.
+    function test_rescueRepayClose_fullCycleOnRealTrove() public {
+        PositionVault v = _openVault(alice, 5000e18, 5000e18);
+        uint256 aliceBtc = alice.balance; // 0: all collateral is in the trove
+        (uint256 collInTrove,,,,,) = TM.getEntireDebtAndColl(address(v));
+        _dropPrice(30);
+        RescueMarket.Quote memory q = _rescue(v);
+
+        // Borrower repays the lien: they hold the 5000 borrowed MUSD; top up fee + tip.
+        (uint256 lienAmount,,) = v.lien();
+        deal(address(MUSD), alice, MUSD.balanceOf(alice) + q.fee + q.tip, true);
+        vm.startPrank(alice);
+        MUSD.approve(address(market), lienAmount);
+        market.repayLien(address(v));
+        vm.stopPrank();
+
+        (,, bool active) = v.lien();
+        assertFalse(active, "lien cleared");
+        assertEq(market.outstanding(), 0);
+        assertEq(market.totalAssets(), POOL + q.fee, "fee booked to providers");
+
+        // Provider exits with deposit + fee.
+        uint256 shares = market.sharesOf(provider);
+        vm.prank(provider);
+        assertApproxEqAbs(market.withdraw(shares), POOL + q.fee, 1);
+
+        // Borrower closes: pays remaining debt, gets every BTC back.
+        (, uint256 principal, uint256 interest,,,) = TM.getEntireDebtAndColl(address(v));
+        uint256 toBurn = principal + interest - BO.MUSD_GAS_COMPENSATION();
+        deal(address(MUSD), alice, toBurn, true);
+        vm.startPrank(alice);
+        MUSD.approve(address(v), toBurn);
+        v.close();
+        vm.stopPrank();
+        assertEq(alice.balance, aliceBtc + collInTrove, "all collateral back");
+    }
+
     function test_rescue_realTrove_revertsAboveTrigger() public {
         PositionVault v = _openVault(alice, 5000e18, 5000e18);
         vm.prank(keeper);

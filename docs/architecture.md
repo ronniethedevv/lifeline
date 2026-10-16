@@ -65,7 +65,9 @@ Owns exactly one MUSD trove. Holds BTC (native) and MUSD while passing them thro
 - `previewRescue(vault)` returns status, ICR, repay, fee, tip and post-rescue NICR (for hints)
   without reverting: keepers use it for hints, the UI to show cost before signing.
 - Withdrawals are limited to liquid MUSD (`totalAssets − outstanding`).
-- `repayLien(vault)` — borrower pays lien MUSD back; fee goes to providers.
+- `repayLien(vault)` (anyone): pulls the full lien (repay + fee + tip) from the caller, clears it
+  on the vault, `outstanding −= repay + tip`, fee added to pool assets (provider income). Full
+  repayment only; allowed after `dueBy` until claimed (T1.7a).
 - `claimLien(vault)` (anyone, after `dueBy`) — seizes BTC; BTC is held by the pool and
   shares carry a claim on it (Wave 1: providers withdraw pro-rata BTC + MUSD).
 
@@ -129,6 +131,9 @@ Zero-order Sugeno fuzzy system, all fixed-point (1e18), no `exp`.
 - **Price manipulation**: Mezo's PriceFeed is the only price source; do not add a second
   manipulable one.
 - **Keeper liveness**: anyone can call `rescue`; the tip makes it profitable.
+- **Wave 1 has no seizure** (claimLien is T1.7b, Wave 2): an unpaid lien keeps the borrower's
+  collateral locked but the pool can't recover the lent MUSD, and if the trove is later
+  liquidated providers lose it. State this plainly in the Wave 1 pitch/deck.
 - **Small troves are unrescuable**: repay can't go below `minNetDebt`, so troves near 1,800 MUSD
   net debt have little or no rescue headroom. Surface this in the UI at opt-in (T1.3 finding).
 

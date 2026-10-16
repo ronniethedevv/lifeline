@@ -301,6 +301,166 @@ contract RescueMarketRescueTest is MarketFixture {
         assertEq(uint8(market.previewRescue(address(out)).status), uint8(RescueMarket.RescueStatus.NotOptedIn));
     }
 
+    // ------------------------------------------------------------ repayLien (T1.7a)
+
+    event LienRepaid(address indexed vault, address indexed payer, uint256 principal, uint256 fee);
+
+    function _rescued() internal returns (RescueMarket.Quote memory q) {
+        pf.setPrice(DROP_PRICE);
+        q = market.previewRescue(address(vault));
+        _rescue(vault);
+    }
+
+    /// @dev `payer` gets exactly the lien amount and approves the market.
+    function _fundLien(address payer, PositionVault v) internal returns (uint256 amount) {
+        (amount,,) = v.lien();
+        deal(address(musd), payer, amount, true);
+        vm.prank(payer);
+        musd.approve(address(market), amount);
+    }
+
+    function test_repayLien_clearsLienAndBooksFeeAsIncome() public {
+        RescueMarket.Quote memory q = _rescued();
+        uint256 amount = _fundLien(alice, vault);
+        assertEq(amount, q.repay + q.fee + q.tip);
+
+        vm.expectEmit(true, true, false, true, address(market));
+        emit LienRepaid(address(vault), alice, q.repay + q.tip, q.fee);
+        vm.prank(alice);
+        market.repayLien(address(vault));
+
+        (,, bool active) = vault.lien();
+        assertFalse(active, "vault lien cleared");
+        (uint256 principal, uint256 fee) = market.lienRecords(address(vault));
+        assertEq(principal + fee, 0, "market record deleted");
+        assertEq(market.outstanding(), 0);
+        assertEq(market.totalAssets(), POOL + q.fee, "fee is provider income");
+        assertEq(market.liquidAssets(), POOL + q.fee);
+        assertEq(musd.balanceOf(address(market)), POOL + q.fee);
+        assertEq(musd.balanceOf(alice), 0);
+    }
+
+    function test_repayLien_byThirdParty() public {
+        _rescued();
+        address friend = makeAddr("friend");
+        _fundLien(friend, vault);
+        vm.prank(friend);
+        market.repayLien(address(vault));
+        (,, bool active) = vault.lien();
+        assertFalse(active);
+    }
+
+    function test_repayLien_afterDueByStillAllowed() public {
+        _rescued();
+        vm.warp(block.timestamp + LIEN_TERM + 30 days);
+        _fundLien(alice, vault);
+        vm.prank(alice);
+        market.repayLien(address(vault));
+        (,, bool active) = vault.lien();
+        assertFalse(active);
+    }
+
+    function test_repayLien_unblocksVault() public {
+        _rescued();
+        _fundLien(alice, vault);
+        vm.prank(alice);
+        market.repayLien(address(vault));
+
+        uint256 before = alice.balance;
+        vm.prank(alice);
+        vault.withdrawColl(0.01 ether, address(0), address(0));
+        assertEq(alice.balance, before + 0.01 ether);
+    }
+
+    function test_repayLien_allowsAnotherRescue() public {
+        _rescued();
+        _fundLien(alice, vault);
+        vm.prank(alice);
+        market.repayLien(address(vault));
+        pf.setPrice(3800e18); // falls again
+        assertEq(uint8(market.previewRescue(address(vault)).status), uint8(RescueMarket.RescueStatus.Ok));
+        _rescue(vault);
+        (,, bool active) = vault.lien();
+        assertTrue(active);
+    }
+
+    function test_repayLien_providerWithdrawsDepositPlusFee() public {
+        RescueMarket.Quote memory q = _rescued();
+        _fundLien(alice, vault);
+        vm.prank(alice);
+        market.repayLien(address(vault));
+
+        uint256 shares = market.sharesOf(provider);
+        vm.prank(provider);
+        uint256 out = market.withdraw(shares);
+        assertApproxEqAbs(out, POOL + q.fee, 1, "sole provider gets the fee");
+        assertGe(musd.balanceOf(address(market)), market.totalAssets(), "accounting backed");
+    }
+
+    function test_repayLien_revertsForUnknownVault() public {
+        vm.expectRevert(RescueMarket.NotVault.selector);
+        market.repayLien(makeAddr("fake"));
+    }
+
+    function test_repayLien_revertsWhenNeverRescued() public {
+        vm.prank(alice);
+        vm.expectRevert(RescueMarket.NoActiveLien.selector);
+        market.repayLien(address(vault));
+    }
+
+    function test_repayLien_revertsWhenAlreadyRepaid() public {
+        _rescued();
+        _fundLien(alice, vault);
+        vm.prank(alice);
+        market.repayLien(address(vault));
+        vm.prank(alice);
+        vm.expectRevert(RescueMarket.NoActiveLien.selector);
+        market.repayLien(address(vault));
+    }
+
+    function test_repayLien_revertsWithoutApproval() public {
+        _rescued();
+        (uint256 amount,,) = vault.lien();
+        deal(address(musd), alice, amount, true);
+        vm.prank(alice);
+        vm.expectRevert();
+        market.repayLien(address(vault));
+    }
+
+    function test_repayLien_revertsWithoutBalance() public {
+        _rescued();
+        uint256 amount = _fundLien(alice, vault);
+        deal(address(musd), alice, amount - 1, true);
+        vm.prank(alice);
+        vm.expectRevert();
+        market.repayLien(address(vault));
+    }
+
+    function testFuzz_rescueRepayCycles_providersNeverLose(uint256 seed, uint8 cycles) public {
+        cycles = uint8(bound(cycles, 1, 5));
+        uint256 deposited = POOL;
+        uint256 fees;
+        for (uint256 i; i < cycles; i++) {
+            uint256 price = bound(uint256(keccak256(abi.encode(seed, i))), 3400e18, 4999e18);
+            pf.setPrice(START_PRICE); // reset so the trove is healthy, then drop
+            pf.setPrice(price);
+            RescueMarket.Quote memory q = market.previewRescue(address(vault));
+            if (q.status != RescueMarket.RescueStatus.Ok) continue;
+            _rescue(vault);
+            _fundLien(alice, vault);
+            vm.prank(alice);
+            market.repayLien(address(vault));
+            fees += q.fee;
+            assertEq(market.outstanding(), 0, "outstanding back to 0");
+            assertGe(musd.balanceOf(address(market)), market.totalAssets(), "accounting backed");
+        }
+        assertEq(market.totalAssets(), deposited + fees, "fees accrue to the pool only");
+        uint256 shares = market.sharesOf(provider);
+        vm.prank(provider);
+        uint256 out = market.withdraw(shares);
+        assertGe(out + 1, deposited + fees, "provider gets principal + fees (1 wei rounding)");
+    }
+
     // ------------------------------------------------------------ fuzz
 
     function testFuzz_rescue_raisesIcrToAtMostTarget(uint256 price, uint256 maxRescue) public {
