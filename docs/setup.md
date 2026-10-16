@@ -66,6 +66,9 @@ Common commands:
 forge build
 forge test
 FOUNDRY_PROFILE=fork forge test   # fork tests (shanghai + oracle mock); export .env first: set -a; . ./.env; set +a
+                                  # pinned block (MezoForkBase.PINNED_FORK_BLOCK): first run ~10 min, cached runs ~15s
+MEZO_FORK_BLOCK=0 FOUNDRY_PROFILE=fork forge test   # same, against latest state (catches Mezo upgrades)
+script/live-probe.sh              # T0.5B/T0.6 live probe: dry run; --broadcast sends real testnet txs
 forge script script/Deploy.s.sol --rpc-url mezo_testnet --broadcast
 slither .
 ```
