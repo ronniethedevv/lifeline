@@ -70,7 +70,62 @@
       ]
     }
   },
-  "lifeline": {},
+  "lifeline": {
+    "deployedAt": {
+      "date": "2026-10-16",
+      "gitCommit": "b20784c",
+      "deployer": "0x32F786F4270457fAe178E22D624D7a57D08B43d3",
+      "script": "contracts/script/Deploy.s.sol"
+    },
+    "MinimalFeePricer": {
+      "address": "0xfc91D4574B1053eAAABEc8e7150FB162ad4BbCcf",
+      "tx": "0x106620356d614e3bab433ac48d1663f2bcda55174c3f4d3f801164bf2e913c2f",
+      "block": 16188154,
+      "constructor": {
+        "minFeeBps": 100,
+        "maxFeeBps": 500,
+        "lowICR": "1100000000000000000",
+        "highICR": "1500000000000000000"
+      },
+      "verified": true,
+      "explorer": "https://explorer.test.mezo.org/address/0xfc91D4574B1053eAAABEc8e7150FB162ad4BbCcf"
+    },
+    "VaultFactory": {
+      "address": "0x5D370d6b5B641110c687ab599D5C3ED0FdF832dd",
+      "tx": "0x596900f1dbba4ac9c37cf9e47ac0aeb46629843a8c1899d82d47cb827c15c7c7",
+      "block": 16188156,
+      "constructor": {
+        "market": "0x73ee6C5334C8E32F0509380461b3157e47aCa184"
+      },
+      "verified": true,
+      "explorer": "https://explorer.test.mezo.org/address/0x5D370d6b5B641110c687ab599D5C3ED0FdF832dd"
+    },
+    "RescueMarket": {
+      "address": "0x73ee6C5334C8E32F0509380461b3157e47aCa184",
+      "tx": "0x53edb13bad8749062f859fba69ec0e995cd0c0ceadb278ba083439a9699c2501",
+      "block": 16188157,
+      "constructor": {
+        "pricer": "0xfc91D4574B1053eAAABEc8e7150FB162ad4BbCcf",
+        "factory": "0x5D370d6b5B641110c687ab599D5C3ED0FdF832dd",
+        "lienTerm": 604800,
+        "tipBps": 10
+      },
+      "verified": true,
+      "explorer": "https://explorer.test.mezo.org/address/0x73ee6C5334C8E32F0509380461b3157e47aCa184"
+    },
+    "smokeTest": {
+      "note": "factory.createVault() from the deployer; vault not opted in",
+      "vault": "0x4E608f3BBf7ADC1Ab76EBd40c3863063947A1Ed2",
+      "tx": "0x5ab94a19678248f67f885ce3fbcd0a87377193df2f53024ee757745d70df9f34",
+      "block": 16188213,
+      "verified": false
+    },
+    "notes": [
+      "All three deployed runtime bytecodes match the build at gitCommit (immutables masked).",
+      "MUSD proxies' implementations matched the T0.3 pin at deploy time (Deploy.s.sol preflight).",
+      "Vault verification pending: explorer had not indexed the factory-created vault yet."
+    ]
+  },
   "notes": [
     "All addresses verified on-chain at the pinned block: code present, EIP-1967 implementation slot matches the repo artifact, cross-references (TM/BO/HH/ST -> each other, -> MUSD, -> PriceFeed) consistent.",
     "MUSD is not a proxy (repo artifact has no implementation; impl slot is empty), despite the redemptions docs calling every listed address a proxy.",
