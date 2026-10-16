@@ -1,0 +1,79 @@
+{
+  "chainId": 31611,
+  "network": "Mezo testnet (matsnet)",
+  "rpc": "https://rpc.test.mezo.org",
+  "pinned": {
+    "date": "2026-10-16",
+    "block": 16185009,
+    "musdRepoCommit": "aa25fd6defbe6c1385940e183ea7a0a3df4533d8"
+  },
+  "musd": {
+    "BorrowerOperations": {
+      "address": "0xCdF7028ceAB81fA0C6971208e83fa7872994beE5",
+      "proxy": true,
+      "implementation": "0xc05Bf344BD5b58825784326dD3112fB6cC160dcC",
+      "abi": "abis/matsnet/BorrowerOperations.json",
+      "sources": [
+        "github.com/mezo-org/musd@aa25fd6 solidity/artifacts/deployments/matsnet/BorrowerOperations.json",
+        "https://mezo.org/docs/developers/musd/musd-redemptions (testnet column)"
+      ]
+    },
+    "TroveManager": {
+      "address": "0xE47c80e8c23f6B4A1aE41c34837a0599D5D16bb0",
+      "proxy": true,
+      "implementation": "0x9aAB567966983e95536FC460C12266FB0Cc10B07",
+      "abi": "abis/matsnet/TroveManager.json",
+      "sources": [
+        "github.com/mezo-org/musd@aa25fd6 solidity/artifacts/deployments/matsnet/TroveManager.json",
+        "https://mezo.org/docs/developers/musd/musd-redemptions (testnet column)"
+      ]
+    },
+    "PriceFeed": {
+      "address": "0x86bCF0841622a5dAC14A313a15f96A95421b9366",
+      "proxy": true,
+      "implementation": "0xec42B37C12b8D73d320f4075A1BCd58B306629c1",
+      "abi": "abis/matsnet/PriceFeed.json",
+      "sources": [
+        "github.com/mezo-org/musd@aa25fd6 solidity/artifacts/deployments/matsnet/PriceFeed.json",
+        "https://mezo.org/docs/developers/musd/musd-redemptions (testnet column)"
+      ]
+    },
+    "HintHelpers": {
+      "address": "0x4e4cBA3779d56386ED43631b4dCD6d8EacEcBCF6",
+      "proxy": true,
+      "implementation": "0x8adF3f35dBE4026112bCFc078872bcb967732Ea8",
+      "abi": "abis/matsnet/HintHelpers.json",
+      "sources": [
+        "github.com/mezo-org/musd@aa25fd6 solidity/artifacts/deployments/matsnet/HintHelpers.json",
+        "https://mezo.org/docs/developers/musd/musd-redemptions (testnet column)"
+      ]
+    },
+    "SortedTroves": {
+      "address": "0x722E4D24FD6Ff8b0AC679450F3D91294607268fA",
+      "proxy": true,
+      "implementation": "0x9177DF58A9614b84C8c2F68dF27506AB9a5d0323",
+      "abi": "abis/matsnet/SortedTroves.json",
+      "sources": [
+        "github.com/mezo-org/musd@aa25fd6 solidity/artifacts/deployments/matsnet/SortedTroves.json",
+        "https://mezo.org/docs/developers/musd/musd-redemptions (testnet column)"
+      ]
+    },
+    "MUSD": {
+      "address": "0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503",
+      "proxy": false,
+      "implementation": null,
+      "abi": "abis/matsnet/MUSD.json",
+      "sources": [
+        "github.com/mezo-org/musd@aa25fd6 solidity/artifacts/deployments/matsnet/MUSD.json",
+        "https://mezo.org/docs/developers/musd/musd-redemptions (testnet column)",
+        "https://mezo.org/docs/users/resources/contracts-reference/ (Mezo Testnet)"
+      ]
+    }
+  },
+  "lifeline": {},
+  "notes": [
+    "All addresses verified on-chain at the pinned block: code present, EIP-1967 implementation slot matches the repo artifact, cross-references (TM/BO/HH/ST -> each other, -> MUSD, -> PriceFeed) consistent.",
+    "MUSD is not a proxy (repo artifact has no implementation; impl slot is empty), despite the redemptions docs calling every listed address a proxy.",
+    "Mezo-side contracts are upgradeable: recheck implementation addresses + ABIs before each deploy (architecture.md section 3)."
+  ]
+}

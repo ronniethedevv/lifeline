@@ -1,7 +1,8 @@
 # Setup
 
-Network details below come from Mezo's developer docs. Still unconfirmed: MUSD testnet
-contract addresses and the deployed `openTrove` signature (tasks T0.3, T0.4).
+Network details below come from Mezo's developer docs. MUSD testnet addresses + ABIs are
+pinned in `deployments/testnet.json` (T0.3). Still unconfirmed: the deployed `openTrove`
+signature (T0.4).
 
 ## Prerequisites
 - Node 20+, pnpm
@@ -16,8 +17,10 @@ contract addresses and the deployed `openTrove` signature (tasks T0.3, T0.4).
 - Explorer: https://explorer.test.mezo.org
 - Testnet BTC: official Mezo Faucet (CAPTCHA-protected, so fund wallets by hand)
 - Mezo's docs set Solidity 0.8.28 with `evmVersion: "london"` for testnet
-- MUSD contract addresses: from `mezo-org/musd` → `solidity/deployments/matsnet/`
-  (matsnet = testnet), or Mezo's "Contracts and Token Addresses" docs page. Cross-check both.
+- MUSD contract addresses: from `mezo-org/musd` → `solidity/artifacts/deployments/matsnet/`
+  (matsnet = testnet; ignore `matsnet_fuzz`), cross-checked against the testnet column of
+  <https://mezo.org/docs/developers/musd/musd-redemptions>. The "Contracts and Token
+  Addresses" page lists only MUSD for testnet. Pinned in `deployments/testnet.json`.
 
 ## Contracts
 ```bash
