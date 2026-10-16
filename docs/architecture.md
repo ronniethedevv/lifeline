@@ -87,6 +87,11 @@ Zero-order Sugeno fuzzy system, all fixed-point (1e18), no `exp`.
   older than 60s. Forge forks can't execute it → fork tests mock only that address (T0.4).
 - Mezo's own deployed contracts use `PUSH0` (shanghai+); we still deploy london until T0.6.
 - `minNetDebt` and the borrowing rate are governable → read them at runtime, never hard-code.
+- Proven (T0.5): a contract can own a trove. No EOA checks; BTC returns via plain `call` with full
+  gas to the contract's `receive()`. `repayMUSD`/`closeTrove` burn MUSD from the caller (no approve).
+- Closing needs `debt − 200` MUSD, which exceeds what was borrowed (fee + interest): the vault must
+  receive extra MUSD from its owner to close.
+- Mezo's public RPC is flaky (dropped TLS, spurious nulls): retry reads; never blind-retry sends.
 
 ## 4. Invariants (enforced by tests)
 1. A vault's trove is only mutated by its owner or by RescueMarket via `applyRescue` /
