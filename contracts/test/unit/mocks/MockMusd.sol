@@ -49,6 +49,8 @@ contract MockTroveManager {
         uint256 debt;
     }
 
+    uint256 public constant MCR = 1.1e18; // 110%, as on testnet
+
     address public immutable bo;
     mapping(address => Trove) public troves;
 

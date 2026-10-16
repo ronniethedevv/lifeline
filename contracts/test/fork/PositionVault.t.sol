@@ -136,6 +136,21 @@ contract PositionVaultForkTest is MezoForkBase {
         vault.close();
     }
 
+    function test_rescueTerms_validatedAgainstRealMcr() public {
+        uint256 mcr = TM.MCR();
+        assertEq(mcr, 1.1e18);
+        vm.startPrank(alice);
+        vm.expectRevert(PositionVault.InvalidTerms.selector);
+        vault.setRescueTerms(mcr, 1.6e18, 500e18);
+
+        vault.setRescueTerms(mcr + 1, 1.6e18, 500e18);
+        vault.optIn();
+        vm.stopPrank();
+        assertTrue(vault.optedIn());
+        (uint256 trigger,,) = vault.rescueTerms();
+        assertEq(trigger, mcr + 1);
+    }
+
     function test_vault_readsRealPoolAddresses() public view {
         assertEq(vault.activePool(), BO.activePool());
         assertEq(vault.collSurplusPool(), BO.collSurplusPool());

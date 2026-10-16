@@ -272,6 +272,174 @@ contract PositionVaultTest is Test {
         vault.claimCollateral();
     }
 
+    // ------------------------------------------------------------ setRescueTerms
+
+    event TermsSet(uint256 triggerICR, uint256 targetICR, uint256 maxRescue);
+    event OptedIn();
+    event OptedOut();
+
+    uint256 internal constant TRIGGER = 1.3e18; // 130%
+    uint256 internal constant TARGET = 1.6e18; // 160%
+    uint256 internal constant MAX_RESCUE = 500e18;
+
+    function _setTerms() internal {
+        vm.prank(alice);
+        vault.setRescueTerms(TRIGGER, TARGET, MAX_RESCUE);
+    }
+
+    function test_setRescueTerms_storesTermsAndEmits() public {
+        vm.expectEmit(false, false, false, true, address(vault));
+        emit TermsSet(TRIGGER, TARGET, MAX_RESCUE);
+        _setTerms();
+        (uint256 trigger, uint256 target, uint256 maxRescue) = vault.rescueTerms();
+        assertEq(trigger, TRIGGER);
+        assertEq(target, TARGET);
+        assertEq(maxRescue, MAX_RESCUE);
+    }
+
+    function test_setRescueTerms_revertsForNonOwner() public {
+        vm.prank(mallory);
+        vm.expectRevert(PositionVault.NotOwner.selector);
+        vault.setRescueTerms(TRIGGER, TARGET, MAX_RESCUE);
+    }
+
+    function test_setRescueTerms_revertsWhenTriggerAtOrBelowMcr() public {
+        uint256 mcr = tm.MCR();
+        vm.startPrank(alice);
+        vm.expectRevert(PositionVault.InvalidTerms.selector);
+        vault.setRescueTerms(mcr, TARGET, MAX_RESCUE);
+        vm.expectRevert(PositionVault.InvalidTerms.selector);
+        vault.setRescueTerms(mcr - 1, TARGET, MAX_RESCUE);
+        vm.stopPrank();
+    }
+
+    function test_setRescueTerms_revertsWhenTargetNotAboveTrigger() public {
+        vm.startPrank(alice);
+        vm.expectRevert(PositionVault.InvalidTerms.selector);
+        vault.setRescueTerms(TRIGGER, TRIGGER, MAX_RESCUE);
+        vm.expectRevert(PositionVault.InvalidTerms.selector);
+        vault.setRescueTerms(TRIGGER, TRIGGER - 1, MAX_RESCUE);
+        vm.stopPrank();
+    }
+
+    function test_setRescueTerms_revertsOnZeroMaxRescue() public {
+        vm.prank(alice);
+        vm.expectRevert(PositionVault.InvalidTerms.selector);
+        vault.setRescueTerms(TRIGGER, TARGET, 0);
+    }
+
+    function test_setRescueTerms_acceptsTightestValidOrdering() public {
+        uint256 mcr = tm.MCR();
+        vm.prank(alice);
+        vault.setRescueTerms(mcr + 1, mcr + 2, 1);
+        (uint256 trigger, uint256 target, uint256 maxRescue) = vault.rescueTerms();
+        assertEq(trigger, mcr + 1);
+        assertEq(target, mcr + 2);
+        assertEq(maxRescue, 1);
+    }
+
+    function test_setRescueTerms_canUpdateWhileOptedIn() public {
+        _setTerms();
+        vm.startPrank(alice);
+        vault.optIn();
+        vault.setRescueTerms(1.4e18, 1.8e18, 900e18);
+        vm.stopPrank();
+        (uint256 trigger, uint256 target, uint256 maxRescue) = vault.rescueTerms();
+        assertEq(trigger, 1.4e18);
+        assertEq(target, 1.8e18);
+        assertEq(maxRescue, 900e18);
+        assertTrue(vault.optedIn());
+    }
+
+    function testFuzz_setRescueTerms_acceptsOnlyValidOrdering(uint256 trigger, uint256 target, uint256 maxRescue)
+        public
+    {
+        trigger = bound(trigger, 0, 10e18);
+        target = bound(target, 0, 10e18);
+        maxRescue = bound(maxRescue, 0, 1e30);
+        bool valid = tm.MCR() < trigger && trigger < target && maxRescue > 0;
+
+        vm.prank(alice);
+        if (!valid) vm.expectRevert(PositionVault.InvalidTerms.selector);
+        vault.setRescueTerms(trigger, target, maxRescue);
+
+        if (valid) {
+            (uint256 t, uint256 g, uint256 m) = vault.rescueTerms();
+            assertEq(t, trigger);
+            assertEq(g, target);
+            assertEq(m, maxRescue);
+        }
+    }
+
+    // ------------------------------------------------------------ optIn / optOut
+
+    function test_optIn_setsFlagAndEmits() public {
+        _setTerms();
+        vm.expectEmit(false, false, false, true, address(vault));
+        emit OptedIn();
+        vm.prank(alice);
+        vault.optIn();
+        assertTrue(vault.optedIn());
+    }
+
+    function test_optIn_revertsWithoutTerms() public {
+        vm.prank(alice);
+        vm.expectRevert(PositionVault.TermsNotSet.selector);
+        vault.optIn();
+    }
+
+    function test_optIn_revertsWhenAlreadyOptedIn() public {
+        _setTerms();
+        vm.startPrank(alice);
+        vault.optIn();
+        vm.expectRevert(PositionVault.AlreadyOptedIn.selector);
+        vault.optIn();
+        vm.stopPrank();
+    }
+
+    function test_optIn_revertsForNonOwner() public {
+        _setTerms();
+        vm.prank(mallory);
+        vm.expectRevert(PositionVault.NotOwner.selector);
+        vault.optIn();
+    }
+
+    function test_optOut_clearsFlagAndEmits() public {
+        _setTerms();
+        vm.prank(alice);
+        vault.optIn();
+        vm.expectEmit(false, false, false, true, address(vault));
+        emit OptedOut();
+        vm.prank(alice);
+        vault.optOut();
+        assertFalse(vault.optedIn());
+    }
+
+    function test_optOut_revertsWhenNotOptedIn() public {
+        vm.prank(alice);
+        vm.expectRevert(PositionVault.NotOptedIn.selector);
+        vault.optOut();
+    }
+
+    function test_optOut_revertsForNonOwner() public {
+        _setTerms();
+        vm.prank(alice);
+        vault.optIn();
+        vm.prank(mallory);
+        vm.expectRevert(PositionVault.NotOwner.selector);
+        vault.optOut();
+    }
+
+    function test_optInOut_canRepeat() public {
+        _setTerms();
+        vm.startPrank(alice);
+        vault.optIn();
+        vault.optOut();
+        vault.optIn();
+        vm.stopPrank();
+        assertTrue(vault.optedIn());
+    }
+
     // ------------------------------------------------------------ receive
 
     function test_receive_rejectsUnknownSender() public {

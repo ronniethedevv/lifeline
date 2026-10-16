@@ -20,6 +20,30 @@ contract PositionVault is ReentrancyGuard {
     error ZeroAddress();
     error UnauthorizedBTCSender();
     error BTCTransferFailed();
+    error InvalidTerms();
+    error TermsNotSet();
+    error AlreadyOptedIn();
+    error NotOptedIn();
+
+    /// @notice Borrower-chosen rescue terms.
+    /// @param triggerICR Rescue allowed when ICR falls below this // 1e18 = 100%
+    /// @param targetICR ICR a rescue restores // 1e18 = 100%
+    /// @param maxRescue Largest MUSD amount a rescue may repay // 1e18
+    struct RescueTerms {
+        uint256 triggerICR;
+        uint256 targetICR;
+        uint256 maxRescue;
+    }
+
+    /// @notice Emitted when the owner sets rescue terms.
+    /// @param triggerICR Rescue trigger // 1e18 = 100%
+    /// @param targetICR Rescue target // 1e18 = 100%
+    /// @param maxRescue Max MUSD per rescue // 1e18
+    event TermsSet(uint256 triggerICR, uint256 targetICR, uint256 maxRescue);
+    /// @notice Emitted when the owner opts the vault into rescues.
+    event OptedIn();
+    /// @notice Emitted when the owner opts the vault out of rescues.
+    event OptedOut();
 
     /// @notice Owner of the vault and its position.
     address public immutable owner;
@@ -33,6 +57,11 @@ contract PositionVault is ReentrancyGuard {
     address public immutable activePool;
     /// @notice MUSD CollSurplusPool: sends surplus BTC on claimCollateral.
     address public immutable collSurplusPool;
+
+    /// @notice Current rescue terms (all zero until set).
+    RescueTerms public rescueTerms;
+    /// @notice Whether the vault can currently be rescued.
+    bool public optedIn;
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
@@ -129,6 +158,32 @@ contract PositionVault is ReentrancyGuard {
     function claimCollateral() external onlyOwner nonReentrant {
         borrowerOperations.claimCollateral();
         _sendBTC(owner, address(this).balance);
+    }
+
+    /// @notice Sets rescue terms. Requires MCR < trigger < target and maxRescue > 0.
+    /// @dev May be changed while opted in; a rescue applies the terms in force when it runs.
+    /// @param triggerICR Rescue allowed below this ICR // 1e18 = 100%
+    /// @param targetICR ICR a rescue restores // 1e18 = 100%
+    /// @param maxRescue Largest MUSD amount a rescue may repay // 1e18
+    function setRescueTerms(uint256 triggerICR, uint256 targetICR, uint256 maxRescue) external onlyOwner {
+        if (triggerICR <= troveManager.MCR() || targetICR <= triggerICR || maxRescue == 0) revert InvalidTerms();
+        rescueTerms = RescueTerms(triggerICR, targetICR, maxRescue);
+        emit TermsSet(triggerICR, targetICR, maxRescue);
+    }
+
+    /// @notice Opts the vault into rescues. Requires terms to be set.
+    function optIn() external onlyOwner {
+        if (rescueTerms.maxRescue == 0) revert TermsNotSet();
+        if (optedIn) revert AlreadyOptedIn();
+        optedIn = true;
+        emit OptedIn();
+    }
+
+    /// @notice Opts the vault out of rescues.
+    function optOut() external onlyOwner {
+        if (!optedIn) revert NotOptedIn();
+        optedIn = false;
+        emit OptedOut();
     }
 
     /// @notice Accepts BTC only from MUSD's pools (withdrawals, close, surplus claims).
