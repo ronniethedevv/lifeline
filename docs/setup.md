@@ -22,9 +22,10 @@ contract addresses and the deployed `openTrove` signature (tasks T0.3, T0.4).
 ## Contracts
 ```bash
 mkdir contracts && cd contracts
-forge init --no-git --no-commit .
-forge install OpenZeppelin/openzeppelin-contracts --no-commit
-forge install PaulRBerg/prb-math --no-commit   # Wave 2 GN pricer
+forge init --empty --no-git .          # Forge 1.x: no --no-commit (not committing is the default)
+rm -rf lib/forge-std                   # init clones it untracked; reinstall as pinned submodules:
+forge install foundry-rs/forge-std@v1.17.0 OpenZeppelin/openzeppelin-contracts@v5.7.0
+# Wave 2 only (GN pricer): forge install PaulRBerg/prb-math  + add the @prb/math/ remapping
 ```
 
 `contracts/foundry.toml`:
@@ -48,10 +49,10 @@ mezo_testnet = "${MEZO_TESTNET_RPC}"
 `contracts/remappings.txt`:
 ```
 @openzeppelin/=lib/openzeppelin-contracts/
-@prb/math/=lib/prb-math/
+forge-std/=lib/forge-std/src/
 ```
 
-`contracts/.env` (git-ignored):
+`contracts/.env` (git-ignored; copy from the committed `contracts/.env.example`):
 ```
 MEZO_TESTNET_RPC=https://rpc.test.mezo.org
 DEPLOYER_PRIVATE_KEY=
@@ -61,7 +62,7 @@ Common commands:
 ```bash
 forge build
 forge test
-forge test --match-path 'test/fork/*' --fork-url mezo_testnet
+forge test --match-path 'test/fork/*' --fork-url mezo_testnet  # export .env first: set -a; . ./.env; set +a
 forge script script/Deploy.s.sol --rpc-url mezo_testnet --broadcast
 slither .
 ```
