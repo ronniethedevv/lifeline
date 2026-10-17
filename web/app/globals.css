@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Design tokens: docs/ui_context.md (dark theme default). */
+:root {
+  --bg: #0b0d10;
+  --surface: #14171c;
+  --surface-2: #1c2027;
+  --border: #2a2f38;
+  --text: #e8eaed;
+  --text-muted: #9aa1ac;
+  --accent: #f7931a; /* bitcoin orange, use sparingly */
+  --safe: #3fb68b;
+  --watch: #e0b341;
+  --danger: #e5484d;
+  --lien: #7c8cf8;
+  --radius: 10px;
+  --font-sans: var(--font-inter), "Inter", system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), "JetBrains Mono", ui-monospace, monospace;
+  color-scheme: dark;
+}
+
+.font-mono {
+  font-variant-numeric: tabular-nums;
+}
