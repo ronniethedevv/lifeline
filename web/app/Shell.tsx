@@ -9,7 +9,7 @@ export function Shell({ children }: { children: ReactNode }) {
   return (
     <Providers>
       <Header />
-      <main className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-8">{children}</main>
+      <main className="flex flex-col">{children}</main>
     </Providers>
   );
 }

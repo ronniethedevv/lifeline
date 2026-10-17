@@ -9,11 +9,11 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-accent text-bg hover:bg-accent/90",
+        default: "bg-accent text-bg font-medium hover:bg-[#ffa028] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.3)]",
         outline: "border border-border bg-transparent text-text hover:bg-surface-2",
         ghost: "text-text hover:bg-surface-2",
       },
-      size: { default: "h-10 px-4 py-2", sm: "h-9 px-3", lg: "h-11 px-6" },
+      size: { default: "h-11 px-4 py-2", sm: "h-9 px-3", lg: "h-12 px-6" },
     },
     defaultVariants: { variant: "default", size: "default" },
   },

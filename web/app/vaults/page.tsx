@@ -1,5 +1,10 @@
+import { AppContainer } from "@/components/AppContainer";
 import { VaultsList } from "@/components/vault/VaultsList";
 
 export default function VaultsPage() {
-  return <VaultsList />;
+  return (
+    <AppContainer>
+      <VaultsList />
+    </AppContainer>
+  );
 }

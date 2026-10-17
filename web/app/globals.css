@@ -24,3 +24,105 @@
 .font-mono {
   font-variant-numeric: tabular-nums;
 }
+
+/* Landing visuals (dark, elevated). All colours come from the ui_context.md tokens. */
+.hero-glow {
+  background:
+    radial-gradient(60% 60% at 70% 35%, rgb(from var(--accent) r g b / 0.18), transparent 70%),
+    radial-gradient(55% 55% at 85% 70%, rgb(from var(--lien) r g b / 0.22), transparent 70%);
+  filter: blur(44px);
+}
+
+.lifeline-path {
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+  animation: lifeline-draw 2.2s ease-out 0.15s forwards;
+}
+@keyframes lifeline-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.lifeline-pulse {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: lifeline-pulse 2.6s ease-in-out infinite;
+}
+@keyframes lifeline-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.7);
+  }
+}
+
+/* Frosted callout on the lifeline: revealed as the draw-in reaches the dip (~1.1s). */
+.callout-reveal {
+  opacity: 0;
+  transform: translateY(4px);
+  animation: callout-in 0.5s ease-out 1.1s forwards;
+}
+@keyframes callout-in {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Small "live" indicator dot (telemetry + hero pill). */
+.live-dot {
+  animation: live-dot 1.8s ease-in-out infinite;
+}
+@keyframes live-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* Hide the scrollbar on the mobile steps carousel. */
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* Top-lit "specular" surface for cards: a faint white gradient over a dark base with an inset
+   top highlight, instead of a flat 1px grey box. */
+.card-specular {
+  background:
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.01)),
+    #0f1218;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: var(--radius);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.12);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lifeline-path {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+  .lifeline-pulse {
+    animation: none;
+    opacity: 0.6;
+  }
+  .callout-reveal {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  .live-dot {
+    animation: none;
+  }
+}

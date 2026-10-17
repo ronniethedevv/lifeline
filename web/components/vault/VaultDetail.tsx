@@ -3,15 +3,14 @@
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { getAddress, type Address, type PublicClient } from "viem";
-import { useAccount, usePublicClient } from "wagmi";
-import { RiskBadge } from "@/components/RiskBadge";
+import { useAccount, usePublicClient, useReadContract } from "wagmi";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { addresses, market, vault } from "@/lib/contracts";
+import { addresses, borrowerOperations, market, vault } from "@/lib/contracts";
 import { formatBtc, formatMusd, formatPercent, parseBtc, parseMusd, parsePercent } from "@/lib/format";
-import { nominalICR, validateTerms } from "@/lib/risk";
+import { nominalICR, validateTerms, RISK_META } from "@/lib/risk";
 import { computeHints } from "@/lib/hints";
 import { useTx } from "@/hooks/useTx";
 import { useVaultSummary, type VaultSummary } from "@/hooks/useVault";
@@ -36,23 +35,48 @@ function Stat({ label, value, mono = true }: { label: string; value: string; mon
   );
 }
 
-/** Loan-health summary — answers "am I safe?" at the top (ui_context.md). */
+/** Risk-state token → text-colour class (matches ui_context.md risk tokens). */
+const STATE_TEXT: Record<string, string> = {
+  safe: "text-safe",
+  watch: "text-watch",
+  danger: "text-danger",
+  lien: "text-lien",
+  "text-muted": "text-text-muted",
+};
+
+/** Loan-health hero — answers "am I safe?" first: the state and the ratio, large (ui_context.md). */
 function Health({ s }: { s: VaultSummary }) {
+  const meta = RISK_META[s.risk];
+  const subtitle = s.lien.active
+    ? "A rescue lien is active — repay it to unlock your collateral."
+    : !s.hasTrove
+      ? "No loan in this vault yet."
+      : s.liqPrice === undefined
+        ? " "
+        : `Liquidated if BTC falls to $${formatMusd(s.liqPrice)}.`;
   return (
     <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between gap-3">
-          <CardTitle>Loan health</CardTitle>
-          <RiskBadge state={s.risk} />
+      <CardContent className="p-5 sm:p-6">
+        <div className="flex items-end justify-between gap-4">
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-medium uppercase tracking-wider text-text-muted">Loan health</span>
+            <span className={`text-3xl font-semibold leading-none ${STATE_TEXT[meta.token]}`}>{meta.label}</span>
+            <span className="text-sm text-text-muted">{subtitle}</span>
+          </div>
+          <div className="flex shrink-0 flex-col items-end gap-0.5">
+            <span className="font-mono text-3xl font-semibold leading-none tabular-nums">
+              {s.icr === undefined ? "—" : formatPercent(s.icr)}
+            </span>
+            <span className="text-xs text-text-muted">Collateral ratio</span>
+          </div>
         </div>
-      </CardHeader>
-      <CardContent>
-        <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <Stat label="ICR" value={s.icr === undefined ? "—" : formatPercent(s.icr)} />
-          <Stat label="Liquidation price" value={s.liqPrice === undefined ? "—" : `$${formatMusd(s.liqPrice)}`} />
+
+        <dl className="mt-5 grid grid-cols-3 gap-4 border-t border-border pt-4">
           <Stat label="Debt" value={`${formatMusd(s.debt)} MUSD`} />
           <Stat label="Collateral" value={`${formatBtc(s.coll)} BTC`} />
+          <Stat label="BTC price" value={s.price === undefined ? "—" : `$${formatMusd(s.price)}`} />
         </dl>
+
         {s.lien.active ? (
           <p className="mt-4 rounded-[var(--radius)] border border-lien/40 bg-lien/10 p-3 text-sm text-lien">
             Rescued — a lien of {formatMusd(s.lien.amount)} MUSD is active. Withdrawals, borrowing and closing are
@@ -64,12 +88,16 @@ function Health({ s }: { s: VaultSummary }) {
   );
 }
 
-/** Open a loan inside an empty vault: BTC collateral + MUSD to borrow (min net debt 1,800). */
+/** Open a loan inside an empty vault: BTC collateral + MUSD to borrow (min net debt read on-chain). */
 function OpenLoan({ address, s, onDone }: { address: Address; s: VaultSummary; onDone: () => void }) {
   const client = usePublicClient();
   const hints = hinter(client);
   const [coll, setColl] = useState("");
   const [debt, setDebt] = useState("");
+  const { data: minNetDebtData } = useReadContract({ ...borrowerOperations, functionName: "minNetDebt" });
+  const minNetDebt = minNetDebtData as bigint | undefined;
+  const minLabel = minNetDebt !== undefined ? formatMusd(minNetDebt) : "1,800";
+  const belowMin = minNetDebt !== undefined && safeMusd(debt) > 0n && safeMusd(debt) < minNetDebt;
   const tx = useTx(() => {
     setColl("");
     setDebt("");
@@ -88,8 +116,8 @@ function OpenLoan({ address, s, onDone }: { address: Address; s: VaultSummary; o
       <CardHeader>
         <CardTitle>Open a loan</CardTitle>
         <CardDescription>
-          Deposit BTC as collateral and borrow MUSD. Minimum debt is 1,800 MUSD; a vault near the minimum has little
-          rescue headroom.
+          Deposit BTC as collateral and borrow MUSD. Minimum borrow is {minLabel} MUSD; a loan near the minimum has
+          little rescue headroom.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
@@ -101,7 +129,8 @@ function OpenLoan({ address, s, onDone }: { address: Address; s: VaultSummary; o
           <Label htmlFor="debt">Borrow (MUSD)</Label>
           <Input id="debt" value={debt} onChange={(e) => setDebt(e.target.value)} placeholder="1800" inputMode="decimal" disabled={tx.busy} />
         </div>
-        <Button onClick={submit} disabled={tx.busy || coll.trim() === "" || debt.trim() === ""}>
+        {belowMin ? <p className="text-sm text-danger">Minimum borrow is {minLabel} MUSD.</p> : null}
+        <Button onClick={submit} disabled={tx.busy || coll.trim() === "" || debt.trim() === "" || belowMin}>
           {tx.busy ? "Opening…" : "Open loan"}
         </Button>
         <TxNote tx={tx} />

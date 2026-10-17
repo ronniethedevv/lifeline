@@ -14,7 +14,20 @@ const EXPLORER = "https://explorer.test.mezo.org/tx/";
 /** Inline status line for a transaction: prompt, pending, error, or a success link. */
 export function TxNote({ tx }: { tx: ReturnType<typeof useTx> }) {
   if (tx.status === "idle") return null;
-  if (tx.status === "error") return <p className="text-sm text-danger">{tx.error}</p>;
+  if (tx.status === "error")
+    return (
+      <p className="text-sm text-danger">
+        {tx.error}
+        {tx.hash ? (
+          <>
+            {" "}
+            <a className="underline" href={`${EXPLORER}${tx.hash}`} target="_blank" rel="noreferrer">
+              View transaction
+            </a>
+          </>
+        ) : null}
+      </p>
+    );
   if (tx.status === "success")
     return (
       <p className="text-sm text-safe">
