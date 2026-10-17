@@ -1,4 +1,9 @@
-import { AccountPanel } from "@/components/AccountPanel";
+"use client";
+
+import dynamic from "next/dynamic";
+
+// AccountPanel imports Mezo Passport (browser-only), so load it client-side to keep it out of SSR.
+const AccountPanel = dynamic(() => import("@/components/AccountPanel").then((m) => m.AccountPanel), { ssr: false });
 
 export default function Home() {
   return (
