@@ -14,6 +14,9 @@ export function Header() {
           <Link href="/vaults" className="text-sm text-text-muted hover:text-text">
             My vaults
           </Link>
+          <Link href="/provide" className="text-sm text-text-muted hover:text-text">
+            Provide
+          </Link>
         </nav>
         <ConnectButton chainStatus="icon" showBalance={false} accountStatus={{ smallScreen: "avatar", largeScreen: "full" }} />
       </div>
