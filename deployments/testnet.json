@@ -93,7 +93,7 @@
     "FuzzyFeePricer": {
       "address": "0x3589A3D60FE9F9A4038933222B3e5fd8680aDE43",
       "tx": "0x7c0dfc6caef83e2458fc4d52438fcdebd017c1437074d218c69b8691165dae59",
-      "block": null,
+      "block": 16227284,
       "deployedAt": "2026-10-18",
       "script": "contracts/script/DeployFuzzyPricer.s.sol",
       "constructor": {
