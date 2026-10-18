@@ -9,6 +9,7 @@ export const addresses = {
   "vaultFactory": "0x5D370d6b5B641110c687ab599D5C3ED0FdF832dd",
   "rescueMarket": "0x73ee6C5334C8E32F0509380461b3157e47aCa184",
   "minimalFeePricer": "0xfc91D4574B1053eAAABEc8e7150FB162ad4BbCcf",
+  "fuzzyFeePricer": "0x3589A3D60FE9F9A4038933222B3e5fd8680aDE43",
   "borrowerOperations": "0xCdF7028ceAB81fA0C6971208e83fa7872994beE5",
   "troveManager": "0xE47c80e8c23f6B4A1aE41c34837a0599D5D16bb0",
   "priceFeed": "0x86bCF0841622a5dAC14A313a15f96A95421b9366",

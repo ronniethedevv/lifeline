@@ -90,6 +90,23 @@
       "verified": true,
       "explorer": "https://explorer.test.mezo.org/address/0xfc91D4574B1053eAAABEc8e7150FB162ad4BbCcf"
     },
+    "FuzzyFeePricer": {
+      "address": "0x3589A3D60FE9F9A4038933222B3e5fd8680aDE43",
+      "tx": "0x7c0dfc6caef83e2458fc4d52438fcdebd017c1437074d218c69b8691165dae59",
+      "block": null,
+      "deployedAt": "2026-10-18",
+      "script": "contracts/script/DeployFuzzyPricer.s.sol",
+      "constructor": {
+        "minFeeBps": 100,
+        "maxFeeBps": 1000,
+        "icrKnots": ["1100000000000000000", "1250000000000000000", "1500000000000000000"],
+        "sizeKnots": ["50000000000000000", "200000000000000000", "400000000000000000"],
+        "tcrKnots": ["1500000000000000000", "1700000000000000000", "2000000000000000000"]
+      },
+      "note": "Standalone deploy for the pricer explorer (T2.6); not yet wired into RescueMarket (full-stack redeploy pending). 27-cell committed table emitted in PricerCommitted; corner fees verified on-chain (safest 100 bps, riskiest 1000 bps).",
+      "verified": false,
+      "explorer": "https://explorer.test.mezo.org/address/0x3589A3D60FE9F9A4038933222B3e5fd8680aDE43"
+    },
     "VaultFactory": {
       "address": "0x5D370d6b5B641110c687ab599D5C3ED0FdF832dd",
       "tx": "0x596900f1dbba4ac9c37cf9e47ac0aeb46629843a8c1899d82d47cb827c15c7c7",
