@@ -46,7 +46,8 @@ Owns exactly one MUSD trove. Holds BTC (native) and MUSD while passing them thro
     `setRescueTerms` revert. Wave 1: the borrower repays via `RescueMarket.repayLien` first
     (2 txs); a single-call repay-and-withdraw is a possible Wave 2 addition (decision T1.3).
   - `addColl`, `repay`, `refinance` stay allowed (none weakens the lien holder).
-  - `seizeForLien` only after `dueBy`, only up to lien value + penalty at current price.
+  - `seizeForLien` only after `dueBy`, only up to lien value + penalty at current price, and only up
+    to the `withdrawColl` ceiling `(ICR − MCR)/ICR` (0% in Recovery Mode); partial if capped (§5).
 - Forwards BTC received from MUSD (withdrawals, surplus claims) to owner, except during
   seizure.
 
@@ -124,9 +125,29 @@ Zero-order Sugeno fuzzy system, all fixed-point (1e18), no `exp`.
 7. `rescue` cannot be called twice on the same lien.
 
 ## 5. Known risks to design around
-- **Seizure can fail**: `withdrawColl` reverts if it pushes ICR < 110% or system TCR < 150%.
-  Seize the max allowed; leave remainder as a claim; handle Recovery Mode explicitly.
+- **Seizure can fail (T1.7b)**: `withdrawColl` reverts if it pushes ICR < MCR (110%) or, in Recovery
+  Mode, system TCR < CCR (150%). The max BTC fraction a standalone `withdrawColl` can pull is
+  `maxWithdrawableFraction = (ICR − MCR) / ICR` (15.38% at 130% ICR, 9.83% at 122%, 4.35% at 115%) —
+  so a full `claimLien` reverts whenever the lien's BTC-equivalent exceeds that fraction. In
+  **Recovery Mode (TCR < 150%) a standalone `withdrawColl` reverts entirely** (0% withdrawable
+  without first repaying debt). `claimLien` must therefore: seize the max allowed and leave the
+  remainder as a claim; wait for / seize once `TCR ≥ 150%`; or use the **atomic pool-assisted unwind**
+  — use idle pool MUSD to repay and close the vault's base trove, unlock 100% of its BTC, take the
+  lien (+ penalty), and return surplus BTC to the borrower (needs pool liquidity ≥ base debt; Wave 2).
 - **Rescued vault still liquidated**: providers lose the lien. Price this in the pricer.
+- **Combined-LTV / strategic default**: a rescue of size `R` at fee rate `f` (= `feeBps` + `tipBps`)
+  replaces `R` of base debt with `R·(1 + f)` of lien, so the borrower's combined obligation rises from
+  `D` to `D + R·f`. `RescueMarket._repayAmount` sizes `R` to the base *target* ICR, capped only by
+  `maxRescue`, liquidity and min-net-debt — **it does not bound the combined obligation**. Tail case:
+  a late / oracle-gapped rescue firing at ~115% ICR in Recovery Mode (fee ~8%) leaves base ICR safe at
+  150% but combined ratio ~112.9% and borrower equity ~11.4%; a further ~11% BTC drop takes equity to
+  ≤ 0 while the base trove is still ~133% (so Mezo does not liquidate and the borrower is not forced to
+  act) — a rational borrower then strategically defaults on the lien, and seizure recovers only the
+  `(ICR − MCR)/ICR` fraction (partial loss). The risk fee is self-defeating here: a higher fee worsens
+  the combined position. **Wave 2 mitigation**: enforce a minimum trigger buffer above MCR *and* cap
+  the rescue to a combined-ICR floor — `R_max = (collateralValue / ICR_combined_floor − D) / f`, so
+  combined ICR stays ≥ floor after the fee. In normal operation (prompt rescue near the ~130% trigger,
+  healthy TCR → fee ~2.5–3%) equity stays ~22% and combined ICR ~128%; the risk is confined to this tail.
 - **Redemption against vault**: debt falls with collateral; lien stays on the remainder.
 - **Price manipulation**: Mezo's PriceFeed is the only price source; do not add a second
   manipulable one.
