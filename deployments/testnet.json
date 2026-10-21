@@ -122,7 +122,7 @@
       "constructor": {
         "market": "0xbd145bA00b75cE417e94832B857A93Af7eBB1a75"
       },
-      "verified": false,
+      "verified": true,
       "explorer": "https://explorer.test.mezo.org/address/0x1fF92E9f5557cb684aDd38fbd6EFbe99FeAd9Dac",
       "supersedes": "0x5D370d6b5B641110c687ab599D5C3ED0FdF832dd",
       "note": "Rewired to FuzzyFeePricer (RewireFuzzy.s.sol, 2026-10-18). Previous MinimalFeePricer-wired factory 0x5D370d6b5B641110c687ab599D5C3ED0FdF832dd is superseded."
@@ -137,7 +137,7 @@
         "lienTerm": 604800,
         "tipBps": 10
       },
-      "verified": false,
+      "verified": true,
       "explorer": "https://explorer.test.mezo.org/address/0xbd145bA00b75cE417e94832B857A93Af7eBB1a75",
       "supersedes": "0x73ee6C5334C8E32F0509380461b3157e47aCa184",
       "note": "Now priced by FuzzyFeePricer (on-chain market.pricer() == 0x3589A3D60FE9F9A4038933222B3e5fd8680aDE43, confirmed). Previous MinimalFeePricer-wired market 0x73ee6C5334C8E32F0509380461b3157e47aCa184 is superseded."
