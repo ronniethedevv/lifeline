@@ -26,7 +26,7 @@ function TrustStrip() {
         </span>
         <Dot />
         <span>
-          On-chain <span className="text-text">pricing</span>
+          On-chain <span className="text-text">fuzzy</span> pricing
         </span>
         <Dot />
         <span className="text-text">Immutable contracts</span>

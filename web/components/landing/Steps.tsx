@@ -20,8 +20,8 @@ const STEPS: { n: string; title: string; body: string }[] = [
   },
   {
     n: "04",
-    title: "Repay, on your terms",
-    body: "The rescue becomes a short-term lien on your BTC. Clear it to unlock your collateral — and keep its upside.",
+    title: "Repay within 7 days",
+    body: "The rescue is a fixed-term lien: clear it within the 7-day window to unlock your collateral and keep your BTC's upside.",
   },
 ];
 

@@ -17,6 +17,9 @@ export function Header() {
           <Link href="/provide" className="text-sm text-text-muted hover:text-text">
             Provide
           </Link>
+          <Link href="/pricer" className="text-sm text-text-muted hover:text-text">
+            Pricer
+          </Link>
         </nav>
         <ConnectButton chainStatus="icon" showBalance={false} accountStatus={{ smallScreen: "avatar", largeScreen: "full" }} />
       </div>

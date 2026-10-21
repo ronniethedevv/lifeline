@@ -38,8 +38,8 @@ export function Audiences() {
             <span className="font-mono text-xs uppercase tracking-[0.08em] text-lien">For providers →</span>
             <h3 className="mt-3 text-2xl font-normal tracking-[-0.035em] text-white">Earn fees backstopping loans.</h3>
             <p className="mt-2 text-sm text-text-muted">
-              Deposit MUSD into the rescue pool. Every rescue books a fee and a senior claim on the borrower&apos;s BTC —
-              priced on-chain, repaid before they can withdraw.
+              Deposit MUSD into the rescue pool. Every rescue books a fee — priced on-chain by a fuzzy risk model
+              (1–10%) — and a short-term lien on the borrower&apos;s BTC that&apos;s cleared before they can withdraw.
             </p>
             <div className="mt-5">
               <Button asChild variant="outline">

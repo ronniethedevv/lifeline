@@ -42,6 +42,12 @@ export function Hero() {
                   <a href="#how">How it works</a>
                 </Button>
               </div>
+              <p className="text-xs text-text-muted">
+                Rescues are priced on-chain by a fuzzy risk model (1–10%) —{" "}
+                <Link href="/pricer" className="text-accent underline underline-offset-2 hover:text-[#ffa028]">
+                  explore the pricer →
+                </Link>
+              </p>
             </div>
 
             <div className="relative">
@@ -54,7 +60,7 @@ export function Hero() {
                   </span>
                   <span className="rounded-full bg-lien/15 px-2 py-0.5 text-[11px] text-lien">Rescued</span>
                 </div>
-                <div className="mt-2 font-mono text-base font-medium tabular-nums text-white">115.0% → 145.0%</div>
+                <div className="mt-2 font-mono text-base font-medium tabular-nums text-white">130.0% → 150.0%</div>
                 <div className="mt-0.5 text-xs text-zinc-400">
                   <span className="font-mono tabular-nums">+2,500.00</span> MUSD injected
                 </div>

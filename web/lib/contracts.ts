@@ -3,6 +3,7 @@ import { addresses } from "./generated/addresses";
 import {
   borrowerOperationsAbi,
   erc20Abi,
+  fuzzyFeePricerAbi,
   hintHelpersAbi,
   positionVaultAbi,
   priceFeedAbi,
@@ -23,6 +24,7 @@ export const priceFeed = { address: addresses.priceFeed, abi: priceFeedAbi } as 
 export const hintHelpers = { address: addresses.hintHelpers, abi: hintHelpersAbi } as const;
 export const sortedTroves = { address: addresses.sortedTroves, abi: sortedTrovesAbi } as const;
 export const musd = { address: addresses.musd, abi: erc20Abi } as const;
+export const fuzzyPricer = { address: addresses.fuzzyFeePricer, abi: fuzzyFeePricerAbi } as const;
 
 /** A specific vault instance (one trove per vault). */
 export function vault(address: Address) {
