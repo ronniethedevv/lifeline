@@ -6,8 +6,8 @@ export const CHAIN_ID = 31611 as const;
 export const RPC_URL = "https://rpc.test.mezo.org" as const;
 
 export const addresses = {
-  "vaultFactory": "0x5D370d6b5B641110c687ab599D5C3ED0FdF832dd",
-  "rescueMarket": "0x73ee6C5334C8E32F0509380461b3157e47aCa184",
+  "vaultFactory": "0x1fF92E9f5557cb684aDd38fbd6EFbe99FeAd9Dac",
+  "rescueMarket": "0xbd145bA00b75cE417e94832B857A93Af7eBB1a75",
   "minimalFeePricer": "0xfc91D4574B1053eAAABEc8e7150FB162ad4BbCcf",
   "fuzzyFeePricer": "0x3589A3D60FE9F9A4038933222B3e5fd8680aDE43",
   "borrowerOperations": "0xCdF7028ceAB81fA0C6971208e83fa7872994beE5",

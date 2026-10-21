@@ -77,6 +77,14 @@
       "deployer": "0x32F786F4270457fAe178E22D624D7a57D08B43d3",
       "script": "contracts/script/Deploy.s.sol"
     },
+    "rewiredAt": {
+      "date": "2026-10-18",
+      "gitCommit": "8fe2cd0",
+      "deployer": "0x32F786F4270457fAe178E22D624D7a57D08B43d3",
+      "script": "contracts/script/RewireFuzzy.s.sol",
+      "block": 16232366,
+      "note": "Redeployed VaultFactory + RescueMarket wired to the existing FuzzyFeePricer; the MinimalFeePricer-wired factory/market are superseded. On-chain market.pricer()/factory()/factory.market() verified."
+    },
     "MinimalFeePricer": {
       "address": "0xfc91D4574B1053eAAABEc8e7150FB162ad4BbCcf",
       "tx": "0x106620356d614e3bab433ac48d1663f2bcda55174c3f4d3f801164bf2e913c2f",
@@ -103,35 +111,39 @@
         "sizeKnots": ["50000000000000000", "200000000000000000", "400000000000000000"],
         "tcrKnots": ["1500000000000000000", "1700000000000000000", "2000000000000000000"]
       },
-      "note": "Standalone deploy for the pricer explorer (T2.6); not yet wired into RescueMarket (full-stack redeploy pending). 27-cell committed table emitted in PricerCommitted; corner fees verified on-chain (safest 100 bps, riskiest 1000 bps).",
+      "note": "Wired into RescueMarket as the live rescue pricer on 2026-10-18 (RewireFuzzy.s.sol -> market 0xbd145bA00b75cE417e94832B857A93Af7eBB1a75, block 16232366; market.pricer() confirmed). 27-cell committed table emitted in PricerCommitted; corner fees verified on-chain (safest 100 bps, riskiest 1000 bps).",
       "verified": false,
       "explorer": "https://explorer.test.mezo.org/address/0x3589A3D60FE9F9A4038933222B3e5fd8680aDE43"
     },
     "VaultFactory": {
-      "address": "0x5D370d6b5B641110c687ab599D5C3ED0FdF832dd",
-      "tx": "0x596900f1dbba4ac9c37cf9e47ac0aeb46629843a8c1899d82d47cb827c15c7c7",
-      "block": 16188156,
+      "address": "0x1fF92E9f5557cb684aDd38fbd6EFbe99FeAd9Dac",
+      "tx": "0xc29e70d69a78c13e821c277d6fc43cae608a2d446ac07cd2ab1398734ab70841",
+      "block": 16232366,
       "constructor": {
-        "market": "0x73ee6C5334C8E32F0509380461b3157e47aCa184"
+        "market": "0xbd145bA00b75cE417e94832B857A93Af7eBB1a75"
       },
-      "verified": true,
-      "explorer": "https://explorer.test.mezo.org/address/0x5D370d6b5B641110c687ab599D5C3ED0FdF832dd"
+      "verified": false,
+      "explorer": "https://explorer.test.mezo.org/address/0x1fF92E9f5557cb684aDd38fbd6EFbe99FeAd9Dac",
+      "supersedes": "0x5D370d6b5B641110c687ab599D5C3ED0FdF832dd",
+      "note": "Rewired to FuzzyFeePricer (RewireFuzzy.s.sol, 2026-10-18). Previous MinimalFeePricer-wired factory 0x5D370d6b5B641110c687ab599D5C3ED0FdF832dd is superseded."
     },
     "RescueMarket": {
-      "address": "0x73ee6C5334C8E32F0509380461b3157e47aCa184",
-      "tx": "0x53edb13bad8749062f859fba69ec0e995cd0c0ceadb278ba083439a9699c2501",
-      "block": 16188157,
+      "address": "0xbd145bA00b75cE417e94832B857A93Af7eBB1a75",
+      "tx": "0x3801d163d70e2b028aa7a7781626e9da8423b82be907cd32ce410ebe4f01a67f",
+      "block": 16232366,
       "constructor": {
-        "pricer": "0xfc91D4574B1053eAAABEc8e7150FB162ad4BbCcf",
-        "factory": "0x5D370d6b5B641110c687ab599D5C3ED0FdF832dd",
+        "pricer": "0x3589A3D60FE9F9A4038933222B3e5fd8680aDE43",
+        "factory": "0x1fF92E9f5557cb684aDd38fbd6EFbe99FeAd9Dac",
         "lienTerm": 604800,
         "tipBps": 10
       },
-      "verified": true,
-      "explorer": "https://explorer.test.mezo.org/address/0x73ee6C5334C8E32F0509380461b3157e47aCa184"
+      "verified": false,
+      "explorer": "https://explorer.test.mezo.org/address/0xbd145bA00b75cE417e94832B857A93Af7eBB1a75",
+      "supersedes": "0x73ee6C5334C8E32F0509380461b3157e47aCa184",
+      "note": "Now priced by FuzzyFeePricer (on-chain market.pricer() == 0x3589A3D60FE9F9A4038933222B3e5fd8680aDE43, confirmed). Previous MinimalFeePricer-wired market 0x73ee6C5334C8E32F0509380461b3157e47aCa184 is superseded."
     },
     "smokeTest": {
-      "note": "factory.createVault() from the deployer; vault not opted in",
+      "note": "factory.createVault() from the deployer; vault not opted in. ORPHANED after the 2026-10-18 fuzzy rewire: created under the superseded factory 0x5D370d6b5B641110c687ab599D5C3ED0FdF832dd and points at the old market. Not used in acceptance.",
       "vault": "0x4E608f3BBf7ADC1Ab76EBd40c3863063947A1Ed2",
       "tx": "0x5ab94a19678248f67f885ce3fbcd0a87377193df2f53024ee757745d70df9f34",
       "block": 16188213,
