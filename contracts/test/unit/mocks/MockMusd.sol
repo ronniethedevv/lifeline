@@ -75,6 +75,7 @@ contract MockTroveManager {
         return troves[b].debt;
     }
 
+    uint256 public constant CCR = 1.5e18; // 150%, as on testnet
     uint256 public tcr = 2e18; // settable system TCR
 
     function setTCR(uint256 _tcr) external {
@@ -83,6 +84,11 @@ contract MockTroveManager {
 
     function getTCR(uint256) external view returns (uint256) {
         return tcr;
+    }
+
+    /// @dev Recovery Mode when system TCR < CCR (price arg ignored; tcr is set directly).
+    function checkRecoveryMode(uint256) external view returns (bool) {
+        return tcr < CCR;
     }
 
     /// @dev Same formula as MUSD: coll * price / debt, max uint when debt is 0.
@@ -126,6 +132,9 @@ contract MockBorrowerOperations {
     mapping(address => uint256) public refinanceCount;
     mapping(address => uint256) public surplus;
 
+    /// @dev Price used only by the withdrawColl ceiling guard; keep in sync with the PriceFeed mock.
+    uint256 public price = 5000e18;
+
     constructor() {
         musd = new MockMUSD();
         troveManager = new MockTroveManager();
@@ -136,6 +145,11 @@ contract MockBorrowerOperations {
     /// @dev Test helper: MUSD's minNetDebt is governable.
     function setMinNetDebt(uint256 value) external {
         minNetDebt = value;
+    }
+
+    /// @dev Test helper: price for the withdrawColl ceiling guard (match MockPriceFeed).
+    function setPrice(uint256 value) external {
+        price = value;
     }
 
     function getBorrowingFee(uint256 debt) public pure returns (uint256) {
@@ -169,7 +183,12 @@ contract MockBorrowerOperations {
     function withdrawColl(uint256 amount, address, address) external {
         (ITroveManager.Status s, uint256 coll, uint256 debt) = _trove(msg.sender);
         require(s == ITroveManager.Status.active, "BorrowerOps: Trove does not exist or is closed");
-        troveManager.set(msg.sender, s, coll - amount, debt);
+        uint256 newColl = coll - amount; // underflows (reverts) if amount > coll
+        // MUSD blocks a standalone withdrawal in Recovery Mode, or if it pushes ICR below MCR.
+        require(!troveManager.checkRecoveryMode(price), "BorrowerOps: Recovery Mode");
+        uint256 newICR = debt == 0 ? type(uint256).max : newColl * price / debt;
+        require(newICR >= troveManager.MCR(), "BorrowerOps: ICR < MCR");
+        troveManager.set(msg.sender, s, newColl, debt);
         activePool.send(msg.sender, amount);
     }
 

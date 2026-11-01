@@ -27,6 +27,7 @@ contract PositionVault is ReentrancyGuard {
     error NotMarket();
     error LienActive();
     error NoActiveLien();
+    error LienNotDue();
     error ZeroRescue();
     error RescueTooLarge();
     error InvalidDeadline();
@@ -69,6 +70,11 @@ contract PositionVault is ReentrancyGuard {
     /// @notice Emitted when the market clears a repaid lien.
     /// @param amount Lien amount that was cleared // 1e18
     event LienCleared(uint256 amount);
+    /// @notice Emitted when the market seizes BTC toward an overdue lien (T1.7b).
+    /// @param btcAmount BTC withdrawn from the trove and sent to the market // 1e18
+    /// @param lienReduced MUSD the seizure credits against the lien // 1e18
+    /// @param remaining Lien amount still outstanding after this seizure (0 if cleared) // 1e18
+    event LienSeized(uint256 btcAmount, uint256 lienReduced, uint256 remaining);
 
     /// @notice Owner of the vault and its position.
     address public immutable owner;
@@ -267,6 +273,40 @@ contract PositionVault is ReentrancyGuard {
         uint256 amount = lien.amount;
         delete lien;
         emit LienCleared(amount);
+    }
+
+    /// @notice After the lien is due, withdraws `btcAmount` BTC from the trove and sends it to the
+    ///         market toward the lien, crediting `lienReduced` MUSD against the outstanding lien
+    ///         (clearing it if that covers the full amount). Partial seizures leave the lien active.
+    /// @dev The market sizes `btcAmount` to the `(ICR − MCR)/ICR` withdraw ceiling and values
+    ///      `lienReduced`; MUSD's `withdrawColl` is the hard guard (it reverts beyond the ceiling
+    ///      and entirely in Recovery Mode), so a capped claim simply seizes less. Checks-Effects-
+    ///      Interactions: the lien is updated before the external withdrawal.
+    /// @param btcAmount BTC to withdraw from the trove and forward to the market // 1e18
+    /// @param lienReduced MUSD this seizure credits against the lien // 1e18
+    /// @param upperHint Insert-position hint
+    /// @param lowerHint Insert-position hint
+    function seizeForLien(uint256 btcAmount, uint256 lienReduced, address upperHint, address lowerHint)
+        external
+        nonReentrant
+        onlyMarket
+    {
+        if (!lien.active) revert NoActiveLien();
+        if (block.timestamp < lien.dueBy) revert LienNotDue();
+
+        uint256 remaining;
+        if (lienReduced >= lien.amount) {
+            delete lien;
+        } else {
+            lien.amount -= lienReduced;
+            remaining = lien.amount;
+        }
+        emit LienSeized(btcAmount, lienReduced, remaining);
+
+        if (btcAmount > 0) {
+            borrowerOperations.withdrawColl(btcAmount, upperHint, lowerHint);
+            _sendBTC(market, btcAmount);
+        }
     }
 
     /// @notice Accepts BTC only from MUSD's pools (withdrawals, close, surplus claims).

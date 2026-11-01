@@ -685,6 +685,107 @@ contract PositionVaultTest is Test {
         assertTrue(active);
     }
 
+    // ------------------------------------------------------------ seizeForLien (T1.7b)
+
+    event LienSeized(uint256 btcAmount, uint256 lienReduced, uint256 remaining);
+
+    uint256 internal constant SEIZE_BTC = 0.05 ether;
+
+    /// @dev A rescued vault whose lien is now past due.
+    function _seizable() internal {
+        _rescued();
+        vm.warp(block.timestamp + GRACE + 1);
+    }
+
+    function test_seizeForLien_partialForwardsBtcAndReducesLien() public {
+        _seizable();
+        uint256 collBefore = tm.getTroveColl(address(vault));
+        uint256 marketBefore = market.balance;
+
+        vm.expectEmit(false, false, false, true, address(vault));
+        emit LienSeized(SEIZE_BTC, 100e18, REPAY + FEE - 100e18);
+        vm.prank(market);
+        vault.seizeForLien(SEIZE_BTC, 100e18, address(0), address(0));
+
+        assertEq(market.balance, marketBefore + SEIZE_BTC, "market received seized BTC");
+        assertEq(tm.getTroveColl(address(vault)), collBefore - SEIZE_BTC, "trove coll reduced");
+        assertEq(address(vault).balance, 0, "vault holds no BTC");
+        (uint256 amount,, bool active) = vault.lien();
+        assertEq(amount, REPAY + FEE - 100e18, "lien reduced");
+        assertTrue(active, "lien still active after partial seizure");
+    }
+
+    function test_seizeForLien_fullClearsLienAndUnblocks() public {
+        _seizable();
+        vm.prank(market);
+        vault.seizeForLien(SEIZE_BTC, REPAY + FEE, address(0), address(0));
+
+        (uint256 amount,, bool active) = vault.lien();
+        assertEq(amount, 0, "lien cleared");
+        assertFalse(active, "lien inactive");
+
+        // Cleared lien unblocks owner actions.
+        vm.prank(alice);
+        vault.optOut();
+        assertFalse(vault.optedIn());
+    }
+
+    function test_seizeForLien_overFullCoverageClearsLien() public {
+        _seizable();
+        vm.prank(market);
+        vault.seizeForLien(SEIZE_BTC, REPAY + FEE + 1, address(0), address(0)); // lienReduced > amount
+        (uint256 amount,, bool active) = vault.lien();
+        assertEq(amount, 0);
+        assertFalse(active);
+    }
+
+    function test_seizeForLien_partialStillBlocksOwner() public {
+        _seizable();
+        vm.prank(market);
+        vault.seizeForLien(SEIZE_BTC, 100e18, address(0), address(0));
+        vm.prank(alice);
+        vm.expectRevert(PositionVault.LienActive.selector);
+        vault.withdrawColl(0.1 ether, address(0), address(0));
+    }
+
+    function test_seizeForLien_revertsForNonMarket() public {
+        _seizable();
+        vm.prank(alice); // not even the owner
+        vm.expectRevert(PositionVault.NotMarket.selector);
+        vault.seizeForLien(SEIZE_BTC, 100e18, address(0), address(0));
+    }
+
+    function test_seizeForLien_revertsWithoutActiveLien() public {
+        _open();
+        vm.prank(market);
+        vm.expectRevert(PositionVault.NoActiveLien.selector);
+        vault.seizeForLien(SEIZE_BTC, 100e18, address(0), address(0));
+    }
+
+    function test_seizeForLien_revertsBeforeDue() public {
+        _rescued(); // lien due in GRACE, not warped
+        vm.prank(market);
+        vm.expectRevert(PositionVault.LienNotDue.selector);
+        vault.seizeForLien(SEIZE_BTC, 100e18, address(0), address(0));
+    }
+
+    function test_seizeForLien_revertsInRecoveryMode() public {
+        _seizable();
+        tm.setTCR(1.4e18); // below CCR 150% -> Recovery Mode: withdrawColl blocked entirely
+        vm.prank(market);
+        vm.expectRevert("BorrowerOps: Recovery Mode");
+        vault.seizeForLien(SEIZE_BTC, 100e18, address(0), address(0));
+    }
+
+    function test_seizeForLien_revertsBeyondCeiling() public {
+        _seizable();
+        // Trove is coll 1 BTC, debt ~2903 MUSD at price 5000 (ICR ~172%); seizing 0.5 BTC would
+        // push ICR below MCR, which MUSD's withdrawColl rejects.
+        vm.prank(market);
+        vm.expectRevert("BorrowerOps: ICR < MCR");
+        vault.seizeForLien(0.5 ether, 100e18, address(0), address(0));
+    }
+
     // ------------------------------------------------------------ receive
 
     function test_receive_rejectsUnknownSender() public {
