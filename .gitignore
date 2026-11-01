@@ -5,3 +5,12 @@ contracts/cache/
 contracts/broadcast/
 node_modules/
 .next/
+
+# Internal planning docs — kept locally, not published (public docs: README, docs/architecture.md, docs/setup.md)
+/CLAUDE.md
+/AGENTS.md
+/docs/progress_tracker.md
+/docs/ai_workflow_rules.md
+/docs/code_standards.md
+/docs/project_overview.md
+/docs/ui_context.md

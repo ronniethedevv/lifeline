@@ -93,7 +93,7 @@ liq-engine/
 ├─ keeper/      TypeScript + viem keeper bot (watch + rescue)
 ├─ web/         Next.js app — vault dashboard, provider pool, pricer explorer
 ├─ deployments/ our addresses + pinned MUSD addresses (testnet.json)
-└─ docs/        project overview, architecture, standards, progress tracker
+└─ docs/        architecture + setup guide
 ```
 
 ## Running it
