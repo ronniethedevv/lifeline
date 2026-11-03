@@ -626,4 +626,51 @@ contract RescueMarketRescueTest is MarketFixture {
         vm.expectRevert(RescueMarket.NoActiveLien.selector);
         market.recognizeLoss(address(vault));
     }
+
+    // ------------------------------------------------------------ combined-ICR cap (T1.7b)
+
+    /// @dev Whenever a rescue runs, the borrower's combined obligation (base debt + fee + tip) stays
+    ///      at or above the combined-ICR floor — the strategic-default guard. A larger maxRescue lets
+    ///      the combined cap, not maxRescue, be the binding constraint.
+    function testFuzz_rescue_keepsCombinedIcrAboveFloor(uint256 price) public {
+        price = bound(price, 3900e18, 4400e18); // ICR ~122%..137%: low enough to make the cap bite
+        PositionVault v = _vaultWith(makeAddr("cf"), DEBT, 5000e18);
+        _setPrice(price);
+        RescueMarket.Quote memory q = market.previewRescue(address(v));
+        if (q.status != RescueMarket.RescueStatus.Ok) return; // below the floor -> no rescue
+
+        uint256 collValue = tm.getTroveColl(address(v)) * price / 1e18;
+        uint256 combinedObligation = tm.getTroveDebt(address(v)) + q.fee + q.tip;
+        uint256 combinedICR = collValue * 1e18 / combinedObligation;
+        assertGe(combinedICR + 1e15, market.combinedICRFloor(), "combined ICR >= floor (1e-3 tol)");
+    }
+
+    function test_rescue_combinedCapShrinksLateRescue() public {
+        // A late rescue at ICR ~121% (just under a 130% trigger): the target-restoring repay would
+        // push combined ICR below the 120% floor, so the cap shrinks the repay to hold the floor.
+        PositionVault v = _newVault(makeAddr("late"));
+        vm.deal(makeAddr("late"), COLL);
+        vm.startPrank(makeAddr("late"));
+        v.open{value: COLL}(DEBT, address(0), address(0));
+        v.setRescueTerms(1.3e18, 1.7e18, 5000e18); // trigger 130%, big maxRescue
+        v.optIn();
+        vm.stopPrank();
+
+        _setPrice(3875e18); // ICR ~121%
+        RescueMarket.Quote memory q = market.previewRescue(address(v));
+        assertEq(uint8(q.status), uint8(RescueMarket.RescueStatus.Ok), "rescue still allowed");
+        assertGt(q.repay, 0, "a (capped) rescue still happens");
+
+        uint256 collValue = COLL * 3875e18 / 1e18;
+        uint256 combinedICR = collValue * 1e18 / (tm.getTroveDebt(address(v)) + q.fee + q.tip);
+        assertGe(combinedICR + 1e15, 1.2e18, "combined ICR held at the floor");
+    }
+
+    function test_rescue_belowCombinedFloorBlocksRescue() public {
+        // ICR already under the 120% floor: a rescue can't keep the combined position above it.
+        PositionVault v = _vaultWith(makeAddr("under"), DEBT, 5000e18);
+        _setPrice(3400e18); // ICR ~106%, below the 120% combined floor
+        RescueMarket.Quote memory q = market.previewRescue(address(v));
+        assertEq(uint8(q.status), uint8(RescueMarket.RescueStatus.NothingToRescue), "no rescue below the floor");
+    }
 }

@@ -464,8 +464,34 @@ contract RescueMarket is ReentrancyGuard {
         if (q.repay == 0) return _status(q, RescueStatus.NothingToRescue);
 
         _setFeeAndTip(q, coll, price);
+        // Strategic-default guard (T1.7b): keep combined ICR (collateral vs base debt + fee + tip)
+        // at or above combinedICRFloor. A capped repay recomputes its (smaller) fee and tip.
+        uint256 capped = _combinedCap(coll, debt, price, q.fee + q.tip, q.repay);
+        if (capped < q.repay) {
+            q.repay = capped;
+            if (q.repay == 0) return _status(q, RescueStatus.NothingToRescue);
+            _setFeeAndTip(q, coll, price);
+        }
+
         q.newNICR = Math.mulDiv(coll, NICR_PRECISION, debt - q.repay);
         return q;
+    }
+
+    /// @dev Largest repay keeping combined ICR >= combinedICRFloor. A rescue moves the borrower's
+    ///      obligation from `debt` to `debt + fee + tip`, so the extra (fee + tip) must fit the
+    ///      budget `collValue/floor − debt`. Returns `repay` unchanged when it already fits, a
+    ///      smaller value to shrink it, or 0 when the position is already at or below the floor.
+    function _combinedCap(uint256 coll, uint256 debt, uint256 price, uint256 feeTip, uint256 repay)
+        internal
+        view
+        returns (uint256)
+    {
+        uint256 budgetCap =
+            Math.mulDiv(Math.mulDiv(coll, price, DECIMAL_PRECISION), DECIMAL_PRECISION, combinedICRFloor);
+        if (budgetCap <= debt) return 0;
+        uint256 budget = budgetCap - debt; // max fee + tip the floor allows
+        if (feeTip <= budget) return repay;
+        return Math.mulDiv(repay, budget, feeTip); // scale down so fee + tip ~ budget (fee is sub-linear)
     }
 
     /// @dev Collateral and entire debt (incl. accrued interest and pending redistributions),

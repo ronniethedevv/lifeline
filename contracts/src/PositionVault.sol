@@ -91,6 +91,10 @@ contract PositionVault is ReentrancyGuard {
     /// @notice RescueMarket: the only caller of applyRescue / clearLien.
     address public immutable market;
 
+    /// @notice Minimum buffer the trigger ICR must sit above MCR, so rescues fire early enough to
+    ///         avoid the combined-LTV spiral near liquidation (T1.7b). // 1e18 = 20pp
+    uint256 public constant MIN_TRIGGER_BUFFER = 0.2e18;
+
     /// @notice Current rescue terms (all zero until set).
     RescueTerms public rescueTerms;
     /// @notice Whether the vault can currently be rescued.
@@ -214,13 +218,16 @@ contract PositionVault is ReentrancyGuard {
         _sendBTC(owner, address(this).balance);
     }
 
-    /// @notice Sets rescue terms. Requires MCR < trigger < target and maxRescue > 0.
+    /// @notice Sets rescue terms. Requires trigger >= MCR + MIN_TRIGGER_BUFFER, trigger < target,
+    ///         and maxRescue > 0.
     /// @dev May be changed while opted in; a rescue applies the terms in force when it runs.
     /// @param triggerICR Rescue allowed below this ICR // 1e18 = 100%
     /// @param targetICR ICR a rescue restores // 1e18 = 100%
     /// @param maxRescue Largest MUSD amount a rescue may repay // 1e18
     function setRescueTerms(uint256 triggerICR, uint256 targetICR, uint256 maxRescue) external onlyOwner noLien {
-        if (triggerICR <= troveManager.MCR() || targetICR <= triggerICR || maxRescue == 0) revert InvalidTerms();
+        if (triggerICR < troveManager.MCR() + MIN_TRIGGER_BUFFER || targetICR <= triggerICR || maxRescue == 0) {
+            revert InvalidTerms();
+        }
         rescueTerms = RescueTerms(triggerICR, targetICR, maxRescue);
         emit TermsSet(triggerICR, targetICR, maxRescue);
     }

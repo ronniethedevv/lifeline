@@ -338,13 +338,20 @@ contract PositionVaultTest is Test {
     }
 
     function test_setRescueTerms_acceptsTightestValidOrdering() public {
-        uint256 mcr = tm.MCR();
+        uint256 minTrigger = tm.MCR() + vault.MIN_TRIGGER_BUFFER();
         vm.prank(alice);
-        vault.setRescueTerms(mcr + 1, mcr + 2, 1);
+        vault.setRescueTerms(minTrigger, minTrigger + 1, 1);
         (uint256 trigger, uint256 target, uint256 maxRescue) = vault.rescueTerms();
-        assertEq(trigger, mcr + 1);
-        assertEq(target, mcr + 2);
+        assertEq(trigger, minTrigger);
+        assertEq(target, minTrigger + 1);
         assertEq(maxRescue, 1);
+    }
+
+    function test_setRescueTerms_revertsBelowTriggerBuffer() public {
+        uint256 minTrigger = tm.MCR() + vault.MIN_TRIGGER_BUFFER();
+        vm.prank(alice);
+        vm.expectRevert(PositionVault.InvalidTerms.selector);
+        vault.setRescueTerms(minTrigger - 1, TARGET, MAX_RESCUE); // one wei under the buffer
     }
 
     function test_setRescueTerms_canUpdateWhileOptedIn() public {
@@ -366,7 +373,7 @@ contract PositionVaultTest is Test {
         trigger = bound(trigger, 0, 10e18);
         target = bound(target, 0, 10e18);
         maxRescue = bound(maxRescue, 0, 1e30);
-        bool valid = tm.MCR() < trigger && trigger < target && maxRescue > 0;
+        bool valid = trigger >= tm.MCR() + vault.MIN_TRIGGER_BUFFER() && trigger < target && maxRescue > 0;
 
         vm.prank(alice);
         if (!valid) vm.expectRevert(PositionVault.InvalidTerms.selector);
