@@ -102,7 +102,9 @@ contract RescueMarketRescueTest is MarketFixture {
             pricer,
             factory,
             LIEN_TERM,
-            TIP_BPS
+            TIP_BPS,
+            SEIZE_PENALTY_BPS,
+            COMBINED_ICR_FLOOR
         );
         vm.expectRevert(RescueMarket.ZeroAddress.selector);
         new RescueMarket(
@@ -113,7 +115,9 @@ contract RescueMarketRescueTest is MarketFixture {
             IFeePricer(address(0)),
             factory,
             LIEN_TERM,
-            TIP_BPS
+            TIP_BPS,
+            SEIZE_PENALTY_BPS,
+            COMBINED_ICR_FLOOR
         );
     }
 
@@ -392,7 +396,7 @@ contract RescueMarketRescueTest is MarketFixture {
 
         uint256 shares = market.sharesOf(provider);
         vm.prank(provider);
-        uint256 out = market.withdraw(shares);
+        (uint256 out,) = market.withdraw(shares);
         assertApproxEqAbs(out, POOL + q.fee, 1, "sole provider gets the fee");
         assertGe(musd.balanceOf(address(market)), market.totalAssets(), "accounting backed");
     }
@@ -457,7 +461,7 @@ contract RescueMarketRescueTest is MarketFixture {
         assertEq(market.totalAssets(), deposited + fees, "fees accrue to the pool only");
         uint256 shares = market.sharesOf(provider);
         vm.prank(provider);
-        uint256 out = market.withdraw(shares);
+        (uint256 out,) = market.withdraw(shares);
         assertGe(out + 1, deposited + fees, "provider gets principal + fees (1 wei rounding)");
     }
 
@@ -482,5 +486,144 @@ contract RescueMarketRescueTest is MarketFixture {
         (uint256 lienAmount,,) = v.lien();
         assertEq(lienAmount, q.repay + q.fee + q.tip);
         assertLe(q.fee, q.repay * MAX_FEE_BPS / BPS + 1, "fee within pricer max");
+    }
+
+    // ------------------------------------------------------------ claimLien / seizure (T1.7b)
+
+    event LienClaimed(
+        address indexed vault, address indexed keeper, uint256 btcSeized, uint256 lienReduced, uint256 remaining
+    );
+    event LossRecognized(address indexed vault, uint256 principalLost);
+
+    /// @dev Keep the mock BO's withdraw-guard price in sync with the PriceFeed mock.
+    function _setPrice(uint256 p) internal {
+        pf.setPrice(p);
+        bo.setPrice(p);
+    }
+
+    /// @dev Rescue `vault` and advance past its lien deadline. Returns the lien amount.
+    function _rescuedAndDue() internal returns (uint256 lienAmount) {
+        _setPrice(DROP_PRICE);
+        _rescue(vault);
+        (lienAmount,,) = vault.lien();
+        vm.warp(block.timestamp + LIEN_TERM + 1);
+    }
+
+    function test_claimLien_fullSeizureClearsLienAndHoldsBtc() public {
+        uint256 lienAmount = _rescuedAndDue();
+        (uint256 principal,) = market.lienRecords(address(vault));
+        assertEq(market.outstanding(), principal, "outstanding == principal before");
+
+        vm.prank(keeper);
+        market.claimLien(address(vault), address(0), address(0));
+
+        uint256 btc = market.btcHeld();
+        assertGt(btc, 0, "pool holds seized BTC");
+        assertEq(address(market).balance, btc, "market BTC balance matches btcHeld");
+        assertEq(market.outstanding(), 0, "receivable settled");
+        (uint256 princAfter, uint256 feeAfter) = market.lienRecords(address(vault));
+        assertEq(princAfter, 0, "lien record cleared");
+        assertEq(feeAfter, 0);
+        (,, bool active) = vault.lien();
+        assertFalse(active, "vault lien cleared on full seizure");
+        // Seizing lien + penalty in BTC leaves providers better off than the bare principal.
+        assertGt(market.totalAssets(), POOL, "providers gain fee + penalty");
+        assertGe(lienAmount, principal, "sanity: lien >= principal");
+    }
+
+    function test_claimLien_partialWhenCeilingCaps() public {
+        _rescuedAndDue();
+        _setPrice(3100e18); // ICR ~117%: the (ICR-MCR)/ICR ceiling caps the seizure
+        uint256 outstandingBefore = market.outstanding();
+
+        vm.prank(keeper);
+        market.claimLien(address(vault), address(0), address(0));
+
+        (uint256 princAfter,) = market.lienRecords(address(vault));
+        assertGt(princAfter, 0, "lien record only partly settled");
+        assertLt(princAfter, outstandingBefore, "but it was reduced");
+        assertEq(market.outstanding(), princAfter, "outstanding tracks remaining principal");
+        (uint256 remaining,, bool active) = vault.lien();
+        assertGt(remaining, 0, "lien still outstanding");
+        assertTrue(active, "lien stays active after a capped seizure");
+        assertGt(market.btcHeld(), 0);
+    }
+
+    function test_claimLien_revertsBeforeDue() public {
+        _setPrice(DROP_PRICE);
+        _rescue(vault); // lien due in LIEN_TERM, not warped
+        vm.prank(keeper);
+        vm.expectRevert(RescueMarket.LienNotDue.selector);
+        market.claimLien(address(vault), address(0), address(0));
+    }
+
+    function test_claimLien_revertsInRecoveryMode() public {
+        _rescuedAndDue();
+        tm.setTCR(1.4e18); // below CCR: ceiling is 0 -> nothing can be seized
+        vm.prank(keeper);
+        vm.expectRevert(RescueMarket.NothingSeized.selector);
+        market.claimLien(address(vault), address(0), address(0));
+    }
+
+    function test_claimLien_revertsForUnknownVault() public {
+        vm.expectRevert(RescueMarket.NotVault.selector);
+        market.claimLien(makeAddr("fake"), address(0), address(0));
+    }
+
+    function test_claimLien_revertsWhenNoLien() public {
+        vm.expectRevert(RescueMarket.NoActiveLien.selector);
+        market.claimLien(address(vault), address(0), address(0));
+    }
+
+    function test_withdraw_paysProRataMusdAndBtc() public {
+        _rescuedAndDue();
+        vm.prank(keeper);
+        market.claimLien(address(vault), address(0), address(0)); // full seizure: pool now holds BTC
+
+        uint256 btcHeld = market.btcHeld();
+        uint256 liquid = market.liquidAssets();
+        uint256 shares = market.sharesOf(provider);
+
+        vm.prank(provider);
+        (uint256 musdOut, uint256 btcOut) = market.withdraw(shares);
+
+        assertEq(btcOut, btcHeld, "sole provider receives all seized BTC");
+        assertApproxEqAbs(musdOut, liquid, 1, "and all liquid MUSD (<=1 wei kept by the pool)");
+        assertEq(market.btcHeld(), 0, "pool BTC drained");
+        assertEq(market.totalShares(), 0, "all shares burned");
+        assertEq(provider.balance, btcOut, "provider got the BTC");
+    }
+
+    // ------------------------------------------------------------ recognizeLoss (T1.7b)
+
+    function test_recognizeLoss_writesOffLiquidatedTrove() public {
+        _rescuedAndDue();
+        (uint256 principal,) = market.lienRecords(address(vault));
+        // MUSD liquidates the trove: its collateral is gone, the lien is unrecoverable.
+        vm.prank(address(bo));
+        tm.set(address(vault), ITroveManager.Status.closedByLiquidation, 0, 0);
+        uint256 assetsBefore = market.totalAssets();
+
+        vm.expectEmit(true, false, false, true, address(market));
+        emit LossRecognized(address(vault), principal);
+        market.recognizeLoss(address(vault));
+
+        assertEq(market.outstanding(), 0, "receivable removed");
+        assertEq(market.totalAssets(), assetsBefore - principal, "pool takes the loss");
+        (uint256 princAfter,) = market.lienRecords(address(vault));
+        assertEq(princAfter, 0, "lien record cleared");
+        (,, bool active) = vault.lien();
+        assertFalse(active, "vault lien cleared");
+    }
+
+    function test_recognizeLoss_revertsWhenNotLiquidated() public {
+        _rescuedAndDue(); // trove still active
+        vm.expectRevert(RescueMarket.NotLiquidated.selector);
+        market.recognizeLoss(address(vault));
+    }
+
+    function test_recognizeLoss_revertsWhenNoLien() public {
+        vm.expectRevert(RescueMarket.NoActiveLien.selector);
+        market.recognizeLoss(address(vault));
     }
 }

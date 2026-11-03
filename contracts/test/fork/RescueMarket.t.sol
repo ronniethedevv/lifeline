@@ -30,9 +30,11 @@ contract RescueMarketForkTest is LifelineForkBase {
         assertEq(market.totalAssets(), 12_500e18);
 
         vm.prank(alice);
-        assertEq(market.withdraw(aliceShares), 10_000e18);
+        (uint256 aliceOut,) = market.withdraw(aliceShares);
+        assertEq(aliceOut, 10_000e18);
         vm.prank(bob);
-        assertEq(market.withdraw(bobShares), 2_500e18);
+        (uint256 bobOut,) = market.withdraw(bobShares);
+        assertEq(bobOut, 2_500e18);
 
         assertEq(MUSD.balanceOf(alice), 10_000e18);
         assertEq(MUSD.balanceOf(bob), 2_500e18);

@@ -135,7 +135,8 @@ contract RescueForkTest is LifelineForkBase {
         // Provider exits with deposit + fee.
         uint256 shares = market.sharesOf(provider);
         vm.prank(provider);
-        assertApproxEqAbs(market.withdraw(shares), POOL + q.fee, 1);
+        (uint256 providerOut,) = market.withdraw(shares);
+        assertApproxEqAbs(providerOut, POOL + q.fee, 1);
 
         // Borrower closes: pays remaining debt, gets every BTC back.
         (, uint256 principal, uint256 interest,,,) = TM.getEntireDebtAndColl(address(v));

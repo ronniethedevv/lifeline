@@ -23,8 +23,10 @@ contract RescueMarketHarness is RescueMarket {
         IFeePricer _pricer,
         VaultFactory _factory,
         uint256 _lienTerm,
-        uint256 _tipBps
-    ) RescueMarket(_musd, _bo, _tm, _pf, _pricer, _factory, _lienTerm, _tipBps) {}
+        uint256 _tipBps,
+        uint256 _seizePenaltyBps,
+        uint256 _combinedICRFloor
+    ) RescueMarket(_musd, _bo, _tm, _pf, _pricer, _factory, _lienTerm, _tipBps, _seizePenaltyBps, _combinedICRFloor) {}
 
     function harnessAccrue(uint256 amount) external {
         _totalManaged += amount;
@@ -38,6 +40,8 @@ abstract contract MarketFixture is Test {
     uint256 internal constant TIP_BPS = 10; // 0.1%
     uint256 internal constant MIN_FEE_BPS = 100;
     uint256 internal constant MAX_FEE_BPS = 500;
+    uint256 internal constant SEIZE_PENALTY_BPS = 500; // 5%
+    uint256 internal constant COMBINED_ICR_FLOOR = 1.2e18; // 120%
 
     MockBorrowerOperations internal bo;
     MockTroveManager internal tm;
@@ -71,7 +75,9 @@ abstract contract MarketFixture is Test {
             pricer,
             factory,
             lienTerm,
-            tipBps
+            tipBps,
+            SEIZE_PENALTY_BPS,
+            COMBINED_ICR_FLOOR
         );
     }
 

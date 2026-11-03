@@ -8,7 +8,7 @@ import {MarketFixture} from "./utils/MarketFixture.sol";
 /// @notice T1.5: provider deposits/withdrawals and share math.
 contract RescueMarketTest is MarketFixture {
     event Deposited(address indexed provider, uint256 assets, uint256 shares);
-    event Withdrawn(address indexed provider, uint256 shares, uint256 assets);
+    event Withdrawn(address indexed provider, uint256 shares, uint256 musdOut, uint256 btcOut);
 
     address internal alice = makeAddr("alice");
     address internal bob = makeAddr("bob");
@@ -21,7 +21,7 @@ contract RescueMarketTest is MarketFixture {
         uint256 shares = market.sharesOf(who);
         if (shares == 0 || market.previewWithdraw(shares) == 0) return 0;
         vm.prank(who);
-        assets = market.withdraw(shares);
+        (assets,) = market.withdraw(shares);
     }
 
     // ------------------------------------------------------------ constructor
@@ -106,9 +106,9 @@ contract RescueMarketTest is MarketFixture {
         assertEq(expected, 1000e18);
 
         vm.expectEmit(true, false, false, true, address(market));
-        emit Withdrawn(alice, shares, 1000e18);
+        emit Withdrawn(alice, shares, 1000e18, 0);
         vm.prank(alice);
-        uint256 assets = market.withdraw(shares);
+        (uint256 assets,) = market.withdraw(shares);
 
         assertEq(assets, 1000e18);
         assertEq(musd.balanceOf(alice), 1000e18);
@@ -120,7 +120,7 @@ contract RescueMarketTest is MarketFixture {
     function test_withdraw_partial() public {
         uint256 shares = _deposit(alice, 1000e18);
         vm.prank(alice);
-        uint256 assets = market.withdraw(shares / 4);
+        (uint256 assets,) = market.withdraw(shares / 4);
         assertEq(assets, 250e18);
         assertEq(market.sharesOf(alice), shares - shares / 4);
         assertEq(market.totalAssets(), 750e18);

@@ -24,6 +24,8 @@ contract RewireFuzzy is Script {
     uint256 internal constant MEZO_TESTNET = 31_611;
     uint256 internal constant LIEN_TERM = 7 days;
     uint256 internal constant TIP_BPS = 10; // 0.1%
+    uint256 internal constant SEIZE_PENALTY_BPS = 500; // 5%
+    uint256 internal constant COMBINED_ICR_FLOOR = 1.2e18; // 120%
     bytes32 internal constant IMPL_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
     string internal constant DEPLOYMENTS = "../deployments/testnet.json";
 
@@ -47,7 +49,9 @@ contract RewireFuzzy is Script {
         // factory at nonce n, market at n+1 (no pricer deploy here)
         address predictedMarket = vm.computeCreateAddress(deployer, vm.getNonce(deployer) + 1);
         factory = new VaultFactory(bo, tm, musd, predictedMarket);
-        market = new RescueMarket(musd, bo, tm, pf, pricer, factory, LIEN_TERM, TIP_BPS);
+        market = new RescueMarket(
+            musd, bo, tm, pf, pricer, factory, LIEN_TERM, TIP_BPS, SEIZE_PENALTY_BPS, COMBINED_ICR_FLOOR
+        );
         vm.stopBroadcast();
 
         if (

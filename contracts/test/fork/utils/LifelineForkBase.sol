@@ -26,6 +26,8 @@ abstract contract LifelineForkBase is MezoForkBase {
     uint256 internal constant HINT_TRIALS = 15;
     uint256 internal constant LIEN_TERM = 7 days;
     uint256 internal constant TIP_BPS = 10;
+    uint256 internal constant SEIZE_PENALTY_BPS = 500; // 5%
+    uint256 internal constant COMBINED_ICR_FLOOR = 1.2e18; // 120%
 
     MinimalFeePricer internal pricer;
     VaultFactory internal factory;
@@ -36,7 +38,9 @@ abstract contract LifelineForkBase is MezoForkBase {
         pricer = new MinimalFeePricer(100, 500, TM.MCR(), TM.CCR());
         address predicted = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1);
         factory = new VaultFactory(BO, TM, MUSD, predicted);
-        market = new RescueMarket(MUSD, BO, TM, PF, pricer, factory, LIEN_TERM, TIP_BPS);
+        market = new RescueMarket(
+            MUSD, BO, TM, PF, pricer, factory, LIEN_TERM, TIP_BPS, SEIZE_PENALTY_BPS, COMBINED_ICR_FLOOR
+        );
         assertEq(address(market), predicted, "market at predicted address");
     }
 

@@ -37,6 +37,10 @@ contract RescueMarket is ReentrancyGuard {
     error AboveTrigger();
     error NothingToRescue();
     error NoActiveLien();
+    error LienNotDue();
+    error NothingSeized();
+    error NotLiquidated();
+    error BTCTransferFailed();
 
     /// @notice Why a vault can or can't be rescued right now.
     enum RescueStatus {
@@ -77,11 +81,12 @@ contract RescueMarket is ReentrancyGuard {
     /// @param assets MUSD deposited // 1e18
     /// @param shares Shares minted
     event Deposited(address indexed provider, uint256 assets, uint256 shares);
-    /// @notice Emitted when a provider withdraws.
+    /// @notice Emitted when a provider withdraws (pro-rata MUSD + seized BTC).
     /// @param provider Withdrawer
     /// @param shares Shares burned
-    /// @param assets MUSD paid out // 1e18
-    event Withdrawn(address indexed provider, uint256 shares, uint256 assets);
+    /// @param musdOut MUSD paid out // 1e18
+    /// @param btcOut BTC paid out // 1e18
+    event Withdrawn(address indexed provider, uint256 shares, uint256 musdOut, uint256 btcOut);
     /// @notice Emitted when a vault is rescued.
     /// @param vault Rescued vault
     /// @param keeper Caller, paid the tip
@@ -100,6 +105,21 @@ contract RescueMarket is ReentrancyGuard {
     /// @param fee Fee booked as provider income // 1e18
     event LienRepaid(address indexed vault, address indexed payer, uint256 principal, uint256 fee);
 
+    /// @notice Emitted when a keeper seizes BTC toward an overdue lien (T1.7b).
+    /// @param vault Vault seized from
+    /// @param keeper Caller
+    /// @param btcSeized BTC taken into the pool // 1e18
+    /// @param lienReduced MUSD of lien the seizure satisfied // 1e18
+    /// @param remaining Lien still outstanding after the seizure (0 if cleared) // 1e18
+    event LienClaimed(
+        address indexed vault, address indexed keeper, uint256 btcSeized, uint256 lienReduced, uint256 remaining
+    );
+
+    /// @notice Emitted when the pool writes off a lien whose trove was liquidated (T1.7b).
+    /// @param vault Vault whose trove was liquidated
+    /// @param principalLost MUSD principal the pool can no longer recover // 1e18
+    event LossRecognized(address indexed vault, uint256 principalLost);
+
     /// @dev Virtual shares/assets (OZ ERC4626 decimals-offset pattern, offset 3).
     uint256 internal constant VIRTUAL_SHARES = 1e3;
     uint256 internal constant VIRTUAL_ASSETS = 1;
@@ -108,6 +128,8 @@ contract RescueMarket is ReentrancyGuard {
     uint256 internal constant NICR_PRECISION = 1e20;
     /// @notice Upper bound on the keeper tip (1%).
     uint256 public constant MAX_TIP_BPS = 100;
+    /// @notice Upper bound on the seizure penalty (20%).
+    uint256 public constant MAX_PENALTY_BPS = 2000;
 
     /// @notice MUSD token.
     IERC20 public immutable musd;
@@ -125,6 +147,11 @@ contract RescueMarket is ReentrancyGuard {
     uint256 public immutable lienTerm;
     /// @notice Keeper tip in basis points of the repaid amount.
     uint256 public immutable tipBps;
+    /// @notice Penalty added to the lien value a seizure claims, in basis points (T1.7b).
+    uint256 public immutable seizePenaltyBps;
+    /// @notice Combined-ICR floor a rescue must keep the borrower above, guarding against strategic
+    ///         default (T1.7b). // 1e18 = 100%
+    uint256 public immutable combinedICRFloor;
 
     /// @notice Shares held per provider.
     mapping(address provider => uint256 shares) public sharesOf;
@@ -132,6 +159,8 @@ contract RescueMarket is ReentrancyGuard {
     uint256 public totalShares;
     /// @notice MUSD lent out in active rescues (repay + tip) // 1e18
     uint256 public outstanding;
+    /// @notice Native BTC held by the pool from seizures; shares carry a pro-rata claim on it // 1e18
+    uint256 public btcHeld;
     /// @notice Lien record per rescued vault.
     mapping(address vault => LienRecord) public lienRecords;
 
@@ -147,6 +176,8 @@ contract RescueMarket is ReentrancyGuard {
     /// @param _factory VaultFactory deployed with market = this address
     /// @param _lienTerm Seconds a borrower has to repay a lien, > 0
     /// @param _tipBps Keeper tip in bps, <= MAX_TIP_BPS
+    /// @param _seizePenaltyBps Seizure penalty in bps, <= MAX_PENALTY_BPS
+    /// @param _combinedICRFloor Combined-ICR floor a rescue must preserve, >= 100% // 1e18
     constructor(
         IERC20 _musd,
         IBorrowerOperations _borrowerOperations,
@@ -155,14 +186,19 @@ contract RescueMarket is ReentrancyGuard {
         IFeePricer _pricer,
         VaultFactory _factory,
         uint256 _lienTerm,
-        uint256 _tipBps
+        uint256 _tipBps,
+        uint256 _seizePenaltyBps,
+        uint256 _combinedICRFloor
     ) {
         if (
             address(_musd) == address(0) || address(_borrowerOperations) == address(0)
                 || address(_troveManager) == address(0) || address(_priceFeed) == address(0)
                 || address(_pricer) == address(0) || address(_factory) == address(0)
         ) revert ZeroAddress();
-        if (_lienTerm == 0 || _tipBps > MAX_TIP_BPS) revert InvalidParams();
+        if (
+            _lienTerm == 0 || _tipBps > MAX_TIP_BPS || _seizePenaltyBps > MAX_PENALTY_BPS
+                || _combinedICRFloor < DECIMAL_PRECISION
+        ) revert InvalidParams();
         if (_factory.market() != address(this)) revert FactoryMismatch();
         musd = _musd;
         borrowerOperations = _borrowerOperations;
@@ -172,6 +208,8 @@ contract RescueMarket is ReentrancyGuard {
         factory = _factory;
         lienTerm = _lienTerm;
         tipBps = _tipBps;
+        seizePenaltyBps = _seizePenaltyBps;
+        combinedICRFloor = _combinedICRFloor;
     }
 
     // ------------------------------------------------------------ providers
@@ -192,23 +230,35 @@ contract RescueMarket is ReentrancyGuard {
         musd.safeTransferFrom(msg.sender, address(this), assets);
     }
 
-    /// @notice Burns the caller's shares and sends the corresponding MUSD. Limited to liquid
-    ///         assets: MUSD lent out in rescues can't be withdrawn until repaid.
+    /// @notice Burns the caller's shares and sends their value as pro-rata MUSD + seized BTC.
+    ///         The MUSD portion is limited to liquid assets: MUSD lent out in rescues can't be
+    ///         withdrawn until repaid or seized.
     /// @param shares Shares to burn
-    /// @return assets MUSD paid out // 1e18
-    function withdraw(uint256 shares) external nonReentrant returns (uint256 assets) {
+    /// @return musdOut MUSD paid out // 1e18
+    /// @return btcOut BTC paid out // 1e18
+    function withdraw(uint256 shares) external nonReentrant returns (uint256 musdOut, uint256 btcOut) {
         if (shares == 0) revert ZeroAmount();
         if (shares > sharesOf[msg.sender]) revert InsufficientShares();
-        assets = previewWithdraw(shares);
-        if (assets == 0) revert ZeroAmount();
-        if (assets > liquidAssets()) revert InsufficientLiquidity();
+
+        uint256 price = priceFeed.fetchPrice();
+        uint256 value = _previewWithdraw(shares, price); // total MUSD-equiv value of the shares
+        if (value == 0) revert ZeroAmount();
+
+        // Pro-rata BTC, capped so its value never exceeds the shares' value (rounds to the pool).
+        uint256 proRataBtc = totalShares == 0 ? 0 : Math.mulDiv(shares, btcHeld, totalShares);
+        uint256 maxBtcByValue = Math.mulDiv(value, DECIMAL_PRECISION, price);
+        btcOut = Math.min(proRataBtc, maxBtcByValue);
+        musdOut = value - Math.mulDiv(btcOut, price, DECIMAL_PRECISION);
+        if (musdOut > liquidAssets()) revert InsufficientLiquidity();
 
         sharesOf[msg.sender] -= shares;
         totalShares -= shares;
-        _totalManaged -= assets;
-        emit Withdrawn(msg.sender, shares, assets);
+        _totalManaged -= musdOut;
+        btcHeld -= btcOut;
+        emit Withdrawn(msg.sender, shares, musdOut, btcOut);
 
-        musd.safeTransfer(msg.sender, assets);
+        if (musdOut > 0) musd.safeTransfer(msg.sender, musdOut);
+        if (btcOut > 0) _sendBTC(msg.sender, btcOut);
     }
 
     // ------------------------------------------------------------ rescue
@@ -253,6 +303,79 @@ contract RescueMarket is ReentrancyGuard {
         PositionVault(payable(vault)).clearLien();
     }
 
+    /// @notice Seizes BTC from an overdue vault toward its lien (anyone, after `dueBy`). Takes BTC
+    ///         worth the lien + penalty, capped by the `(ICR − MCR)/ICR` withdraw ceiling (0 in
+    ///         Recovery Mode), holds it in the pool, and reduces the lien by the value recovered.
+    ///         A ceiling-capped claim is partial and may be repeated as the trove's ICR recovers.
+    /// @dev Hints are for the vault's trove after the withdrawal; a keeper computes them from the
+    ///      post-seizure collateral. Checks-Effects-Interactions: pool accounting updates before the
+    ///      external seizure, and the BTC arrives via `receive` during it.
+    /// @param vault Vault to seize from
+    /// @param upperHint Insert-position hint
+    /// @param lowerHint Insert-position hint
+    function claimLien(address vault, address upperHint, address lowerHint) external nonReentrant {
+        if (!factory.isVault(vault)) revert NotVault();
+        LienRecord memory rec = lienRecords[vault];
+        if (rec.principal == 0) revert NoActiveLien();
+        (uint256 lienAmount, uint256 dueBy, bool active) = PositionVault(payable(vault)).lien();
+        if (!active) revert NoActiveLien();
+        if (block.timestamp < dueBy) revert LienNotDue();
+
+        // Seizure math is in a helper to keep this frame shallow (avoids "stack too deep").
+        (uint256 seizeBtc, uint256 lienReduced, uint256 principalRecovered) =
+            _seizureAmounts(vault, priceFeed.fetchPrice(), lienAmount, rec.principal);
+        if (seizeBtc == 0) revert NothingSeized();
+
+        uint256 remaining = lienAmount - lienReduced;
+        if (remaining == 0) {
+            delete lienRecords[vault];
+        } else {
+            lienRecords[vault].principal = rec.principal - principalRecovered;
+            lienRecords[vault].fee = rec.fee - (lienReduced - principalRecovered);
+        }
+        outstanding -= principalRecovered; // receivable settled by BTC
+        _totalManaged -= principalRecovered;
+        btcHeld += seizeBtc;
+        emit LienClaimed(vault, msg.sender, seizeBtc, lienReduced, remaining);
+
+        PositionVault(payable(vault)).seizeForLien(seizeBtc, lienReduced, upperHint, lowerHint);
+    }
+
+    /// @dev BTC to seize, lien value it satisfies, and principal recovered. Takes BTC worth the
+    ///      lien + penalty, capped by the withdraw ceiling; the lien reduces by the seized value net
+    ///      of penalty (capped at the lien), and principal is recovered pro-rata of the lien.
+    function _seizureAmounts(address vault, uint256 price, uint256 lienAmount, uint256 principal)
+        internal
+        view
+        returns (uint256 seizeBtc, uint256 lienReduced, uint256 principalRecovered)
+    {
+        uint256 totalClaim = lienAmount + Math.mulDiv(lienAmount, seizePenaltyBps, BPS);
+        uint256 desiredBtc = Math.mulDiv(totalClaim, DECIMAL_PRECISION, price, Math.Rounding.Ceil);
+        seizeBtc = Math.min(desiredBtc, _seizeCeiling(vault, price));
+        if (seizeBtc == 0) return (0, 0, 0);
+        uint256 seizedValue = Math.mulDiv(seizeBtc, price, DECIMAL_PRECISION);
+        lienReduced = Math.min(lienAmount, Math.mulDiv(seizedValue, BPS, BPS + seizePenaltyBps));
+        principalRecovered = Math.mulDiv(lienReduced, principal, lienAmount);
+    }
+
+    /// @notice Writes off a lien whose trove was liquidated by MUSD (anyone). The lent principal is
+    ///         unrecoverable, so the pool realises the loss; the fee (never booked) is simply dropped.
+    /// @param vault Vault whose trove was liquidated
+    function recognizeLoss(address vault) external nonReentrant {
+        if (!factory.isVault(vault)) revert NotVault();
+        LienRecord memory rec = lienRecords[vault];
+        if (rec.principal == 0) revert NoActiveLien();
+        if (troveManager.getTroveStatus(vault) != ITroveManager.Status.closedByLiquidation) revert NotLiquidated();
+
+        delete lienRecords[vault];
+        outstanding -= rec.principal;
+        _totalManaged -= rec.principal; // loss to providers
+        emit LossRecognized(vault, rec.principal);
+
+        (,, bool active) = PositionVault(payable(vault)).lien();
+        if (active) PositionVault(payable(vault)).clearLien();
+    }
+
     /// @notice What `rescue(vault)` would do now. Never reverts for an unrescuable vault: the
     ///         status says why. Used by keepers (hints) and the UI (cost before signing).
     /// @param vault Vault to price
@@ -269,10 +392,11 @@ contract RescueMarket is ReentrancyGuard {
 
     // ------------------------------------------------------------ views
 
-    /// @notice Pool assets backing all shares: liquid MUSD + outstanding rescues.
-    /// @return MUSD // 1e18
+    /// @notice Pool assets backing all shares, in MUSD terms: liquid MUSD + outstanding rescues +
+    ///         held BTC valued at the live price.
+    /// @return MUSD-equivalent // 1e18
     function totalAssets() public view returns (uint256) {
-        return _totalManaged;
+        return _totalAssets(priceFeed.fetchPrice());
     }
 
     /// @notice MUSD available for withdrawals and new rescues.
@@ -285,14 +409,25 @@ contract RescueMarket is ReentrancyGuard {
     /// @param assets MUSD // 1e18
     /// @return Shares
     function previewDeposit(uint256 assets) public view returns (uint256) {
-        return Math.mulDiv(assets, totalShares + VIRTUAL_SHARES, _totalManaged + VIRTUAL_ASSETS, Math.Rounding.Floor);
+        return Math.mulDiv(assets, totalShares + VIRTUAL_SHARES, totalAssets() + VIRTUAL_ASSETS, Math.Rounding.Floor);
     }
 
-    /// @notice MUSD that burning `shares` would pay out now (rounded down).
+    /// @notice MUSD-equivalent value that burning `shares` would pay out now (MUSD + BTC, rounded down).
     /// @param shares Shares
-    /// @return MUSD // 1e18
+    /// @return MUSD-equivalent // 1e18
     function previewWithdraw(uint256 shares) public view returns (uint256) {
-        return Math.mulDiv(shares, _totalManaged + VIRTUAL_ASSETS, totalShares + VIRTUAL_SHARES, Math.Rounding.Floor);
+        return _previewWithdraw(shares, priceFeed.fetchPrice());
+    }
+
+    /// @dev Pool value in MUSD terms at an explicit price (avoids a second oracle read in withdraw).
+    function _totalAssets(uint256 price) internal view returns (uint256) {
+        return _totalManaged + Math.mulDiv(btcHeld, price, DECIMAL_PRECISION);
+    }
+
+    /// @dev Shares' MUSD-equivalent value at an explicit price (rounded down, in the pool's favour).
+    function _previewWithdraw(uint256 shares, uint256 price) internal view returns (uint256) {
+        return
+            Math.mulDiv(shares, _totalAssets(price) + VIRTUAL_ASSETS, totalShares + VIRTUAL_SHARES, Math.Rounding.Floor);
     }
 
     // ------------------------------------------------------------ internals
@@ -364,4 +499,25 @@ contract RescueMarket is ReentrancyGuard {
         if (status == RescueStatus.AboveTrigger) revert AboveTrigger();
         revert NothingToRescue();
     }
+
+    /// @dev Max BTC a standalone withdrawal can pull: `(ICR − MCR)/ICR · coll`, and 0 in Recovery
+    ///      Mode (MUSD blocks any withdrawal then). Floored so a seizure stays within MUSD's limit.
+    function _seizeCeiling(address vault, uint256 price) internal view returns (uint256) {
+        if (troveManager.checkRecoveryMode(price)) return 0;
+        uint256 icr = troveManager.getCurrentICR(vault, price);
+        uint256 mcr = troveManager.MCR();
+        if (icr <= mcr) return 0;
+        (uint256 coll,) = _collAndDebt(vault);
+        return Math.mulDiv(coll, icr - mcr, icr, Math.Rounding.Floor);
+    }
+
+    /// @dev Sends native BTC, reverting on failure.
+    function _sendBTC(address to, uint256 amount) internal {
+        (bool ok,) = to.call{value: amount}("");
+        if (!ok) revert BTCTransferFailed();
+    }
+
+    /// @notice Accepts BTC forwarded by a vault during a seizure. `btcHeld` is only credited inside
+    ///         `claimLien`, so stray BTC sent here is ignored by the share price (like MUSD donations).
+    receive() external payable {}
 }
