@@ -31,6 +31,11 @@ contract RescueMarketHarness is RescueMarket {
     function harnessAccrue(uint256 amount) external {
         _totalManaged += amount;
     }
+
+    /// @dev Exposes the internal pool-assets tracker for invariant checks.
+    function totalManaged() external view returns (uint256) {
+        return _totalManaged;
+    }
 }
 
 /// @notice Full mock stack + pricer + factory + market, wired like the deploy script will:
