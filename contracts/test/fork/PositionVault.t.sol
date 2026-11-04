@@ -144,16 +144,19 @@ contract PositionVaultForkTest is MezoForkBase {
     function test_rescueTerms_validatedAgainstRealMcr() public {
         uint256 mcr = TM.MCR();
         assertEq(mcr, 1.1e18);
+        uint256 minTrigger = mcr + vault.MIN_TRIGGER_BUFFER(); // T1.7b: trigger must clear MCR + 20pp
         vm.startPrank(alice);
         vm.expectRevert(PositionVault.InvalidTerms.selector);
         vault.setRescueTerms(mcr, 1.6e18, 500e18);
+        vm.expectRevert(PositionVault.InvalidTerms.selector);
+        vault.setRescueTerms(minTrigger - 1, 1.6e18, 500e18); // one wei under the buffer
 
-        vault.setRescueTerms(mcr + 1, 1.6e18, 500e18);
+        vault.setRescueTerms(minTrigger, 1.6e18, 500e18);
         vault.optIn();
         vm.stopPrank();
         assertTrue(vault.optedIn());
         (uint256 trigger,,) = vault.rescueTerms();
-        assertEq(trigger, mcr + 1);
+        assertEq(trigger, minTrigger);
     }
 
     function _rescueSetup() internal {
