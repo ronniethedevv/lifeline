@@ -171,7 +171,11 @@ beforeAll(async () => {
   factory = await deploy(deployer, deployer.deployContract({ abi: vaultFactoryAbi, bytecode: vaultFactoryBytecode, args: [BO, TM, MUSD, predicted] }));
   market = await deploy(
     deployer,
-    deployer.deployContract({ abi: rescueMarketAbi, bytecode: rescueMarketBytecode, args: [MUSD, BO, TM, PF, pricer, factory, 7n * 24n * 3600n, 10n] }),
+    deployer.deployContract({
+      abi: rescueMarketAbi,
+      bytecode: rescueMarketBytecode,
+      args: [MUSD, BO, TM, PF, pricer, factory, 7n * 24n * 3600n, 10n, 500n, (E18 * 12n) / 10n], // +seizePenaltyBps, combinedICRFloor
+    }),
   );
   expect(market).toBe(predicted);
 

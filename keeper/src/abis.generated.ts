@@ -43,9 +43,36 @@ export const rescueMarketAbi = [
         "name": "_tipBps",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "_seizePenaltyBps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "_combinedICRFloor",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "receive",
+    "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "MAX_PENALTY_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -69,6 +96,55 @@ export const rescueMarketAbi = [
         "name": "",
         "type": "address",
         "internalType": "contract IBorrowerOperations"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "btcHeld",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "claimLien",
+    "inputs": [
+      {
+        "name": "vault",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "upperHint",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "lowerHint",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "combinedICRFloor",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -298,6 +374,19 @@ export const rescueMarketAbi = [
   },
   {
     "type": "function",
+    "name": "recognizeLoss",
+    "inputs": [
+      {
+        "name": "vault",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "repayLien",
     "inputs": [
       {
@@ -331,6 +420,19 @@ export const rescueMarketAbi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "seizePenaltyBps",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -415,7 +517,12 @@ export const rescueMarketAbi = [
     ],
     "outputs": [
       {
-        "name": "assets",
+        "name": "musdOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "btcOut",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -449,6 +556,43 @@ export const rescueMarketAbi = [
   },
   {
     "type": "event",
+    "name": "LienClaimed",
+    "inputs": [
+      {
+        "name": "vault",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "keeper",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "btcSeized",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "lienReduced",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "remaining",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "LienRepaid",
     "inputs": [
       {
@@ -471,6 +615,25 @@ export const rescueMarketAbi = [
       },
       {
         "name": "fee",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "LossRecognized",
+    "inputs": [
+      {
+        "name": "vault",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "principalLost",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -538,7 +701,13 @@ export const rescueMarketAbi = [
         "internalType": "uint256"
       },
       {
-        "name": "assets",
+        "name": "musdOut",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "btcOut",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -549,6 +718,11 @@ export const rescueMarketAbi = [
   {
     "type": "error",
     "name": "AboveTrigger",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "BTCTransferFailed",
     "inputs": []
   },
   {
@@ -578,7 +752,17 @@ export const rescueMarketAbi = [
   },
   {
     "type": "error",
+    "name": "LienNotDue",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NoActiveLien",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotLiquidated",
     "inputs": []
   },
   {
@@ -589,6 +773,11 @@ export const rescueMarketAbi = [
   {
     "type": "error",
     "name": "NotVault",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NothingSeized",
     "inputs": []
   },
   {
@@ -846,6 +1035,19 @@ export const positionVaultAbi = [
   {
     "type": "receive",
     "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "MIN_TRIGGER_BUFFER",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -1159,6 +1361,34 @@ export const positionVaultAbi = [
   },
   {
     "type": "function",
+    "name": "seizeForLien",
+    "inputs": [
+      {
+        "name": "btcAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "lienReduced",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "upperHint",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "lowerHint",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setRescueTerms",
     "inputs": [
       {
@@ -1256,6 +1486,31 @@ export const positionVaultAbi = [
   },
   {
     "type": "event",
+    "name": "LienSeized",
+    "inputs": [
+      {
+        "name": "btcAmount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "lienReduced",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "remaining",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "OptedIn",
     "inputs": [],
     "anonymous": false
@@ -1319,6 +1574,11 @@ export const positionVaultAbi = [
   {
     "type": "error",
     "name": "LienActive",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "LienNotDue",
     "inputs": []
   },
   {

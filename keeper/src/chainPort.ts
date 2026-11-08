@@ -1,8 +1,8 @@
 import { parseEventLogs, WaitForTransactionReceiptTimeoutError, type Address } from "viem";
-import { hintHelpersAbi, rescueMarketAbi, sortedTrovesAbi, vaultFactoryAbi } from "./abis.generated.js";
+import { hintHelpersAbi, positionVaultAbi, rescueMarketAbi, sortedTrovesAbi, vaultFactoryAbi } from "./abis.generated.js";
 import type { MezoPublicClient, MezoWalletClient } from "./chain.js";
 import type { Config } from "./config.js";
-import { RESCUE_STATUS, type KeeperPort, type Quote, type RescueReceipt } from "./keeper.js";
+import { RESCUE_STATUS, type ClaimReceipt, type KeeperPort, type Lien, type Quote, type RescueReceipt } from "./keeper.js";
 
 /** Random samples for HintHelpers.getApproxHint (view call: cost is only RPC time). */
 const HINT_TRIALS = 50n;
@@ -73,6 +73,39 @@ export function chainPort(cfg: Config, client: MezoPublicClient, wallet?: MezoWa
                 },
               }),
         };
+      } catch (err) {
+        if (err instanceof WaitForTransactionReceiptTimeoutError) return { hash, status: "unknown" };
+        throw err;
+      }
+    },
+
+    async now(): Promise<bigint> {
+      return (await client.getBlock()).timestamp;
+    },
+
+    async lien(vault: Address): Promise<Lien> {
+      const [amount, dueBy, active] = await client.readContract({
+        address: vault,
+        abi: positionVaultAbi,
+        functionName: "lien",
+      });
+      return { amount, dueBy, active };
+    },
+
+    async claimLien(vault: Address, upper: Address, lower: Address): Promise<ClaimReceipt> {
+      if (wallet === undefined) throw new Error("claimLien needs a wallet (live mode)");
+      // Simulate first: Mezo's real oracle runs here, so a revert (not due, Recovery Mode, …) surfaces unsent.
+      const { request } = await client.simulateContract({
+        account: wallet.account,
+        address: cfg.marketAddress,
+        abi: rescueMarketAbi,
+        functionName: "claimLien",
+        args: [vault, upper, lower],
+      });
+      const hash = await wallet.writeContract(request);
+      try {
+        const receipt = await client.waitForTransactionReceipt({ hash, timeout: RECEIPT_TIMEOUT_MS });
+        return { hash, status: receipt.status, blockNumber: receipt.blockNumber };
       } catch (err) {
         if (err instanceof WaitForTransactionReceiptTimeoutError) return { hash, status: "unknown" };
         throw err;

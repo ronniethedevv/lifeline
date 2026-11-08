@@ -1,4 +1,4 @@
-import type { Address, Hash } from "viem";
+import { zeroAddress, type Address, type Hash } from "viem";
 import { errorContext, type Logger } from "./log.js";
 
 /** Mirrors RescueMarket.RescueStatus. */
@@ -31,6 +31,20 @@ export interface RescueReceipt {
   executed?: Executed;
 }
 
+/** A vault's rescue lien (PositionVault.lien). */
+export interface Lien {
+  amount: bigint;
+  dueBy: bigint;
+  active: boolean;
+}
+
+/** Receipt of a claimLien send (seizure of an overdue lien). */
+export interface ClaimReceipt {
+  hash: Hash;
+  status: "success" | "reverted" | "unknown";
+  blockNumber?: bigint;
+}
+
 /** What the keeper needs from the chain. The viem implementation is in chainPort.ts. */
 export interface KeeperPort {
   listVaults(): Promise<readonly Address[]>;
@@ -38,13 +52,21 @@ export interface KeeperPort {
   hints(newNICR: bigint): Promise<{ upper: Address; lower: Address }>;
   /** Simulates on the node, sends, and waits for the receipt. */
   rescue(vault: Address, upper: Address, lower: Address): Promise<RescueReceipt>;
+  /** Latest block timestamp, compared against lien deadlines. */
+  now(): Promise<bigint>;
+  /** A vault's current lien. */
+  lien(vault: Address): Promise<Lien>;
+  /** Simulates on the node, sends, and waits for the receipt (seizure of an overdue lien). */
+  claimLien(vault: Address, upper: Address, lower: Address): Promise<ClaimReceipt>;
 }
 
 export type VaultOutcome =
   | { vault: Address; action: "skipped"; status: RescueStatus }
   | { vault: Address; action: "would-rescue"; quote: Quote }
   | { vault: Address; action: "rescued"; quote: Quote; receipt: RescueReceipt }
-  | { vault: Address; action: "failed"; stage: "preview" | "hints" | "rescue"; error: string };
+  | { vault: Address; action: "would-claim"; lien: Lien }
+  | { vault: Address; action: "claimed"; lien: Lien; receipt: ClaimReceipt }
+  | { vault: Address; action: "failed"; stage: "preview" | "hints" | "rescue" | "claim"; error: string };
 
 export interface RunOptions {
   live: boolean;
@@ -82,6 +104,7 @@ export async function runOnce(port: KeeperPort, opts: RunOptions, log: Logger): 
     }
   });
 
+  const now = await port.now();
   const outcomes: VaultOutcome[] = [];
   for (const p of previews) {
     if (!p.ok) {
@@ -89,19 +112,57 @@ export async function runOnce(port: KeeperPort, opts: RunOptions, log: Logger): 
       continue;
     }
     const { vault, quote } = p;
-    if (quote.status !== "Ok") {
+    if (quote.status === "Ok") {
+      if (!opts.live) {
+        log.info("would rescue (dry run)", { vault, ...quote });
+        outcomes.push({ vault, action: "would-rescue", quote });
+      } else {
+        outcomes.push(await rescueOne(port, vault, quote, log));
+      }
+    } else if (quote.status === "LienActive") {
+      outcomes.push(await claimIfDue(port, vault, now, opts.live, log));
+    } else {
       outcomes.push({ vault, action: "skipped", status: quote.status });
-      continue;
     }
-    if (!opts.live) {
-      log.info("would rescue (dry run)", { vault, ...quote });
-      outcomes.push({ vault, action: "would-rescue", quote });
-      continue;
-    }
-    outcomes.push(await rescueOne(port, vault, quote, log));
   }
   log.info("poll done", summarize(outcomes));
   return outcomes;
+}
+
+/** Claims a vault's lien when it is active and past its deadline; otherwise skips it. */
+async function claimIfDue(
+  port: KeeperPort,
+  vault: Address,
+  now: bigint,
+  live: boolean,
+  log: Logger,
+): Promise<VaultOutcome> {
+  let lien: Lien;
+  try {
+    lien = await port.lien(vault);
+  } catch (err) {
+    log.error("lien read failed", { vault, ...errorContext(err) });
+    return { vault, action: "failed", stage: "claim", error: errorContext(err).error as string };
+  }
+  if (!lien.active || lien.dueBy > now) return { vault, action: "skipped", status: "LienActive" };
+  if (!live) {
+    log.info("would claim (dry run)", { vault, dueBy: lien.dueBy, amount: lien.amount });
+    return { vault, action: "would-claim", lien };
+  }
+  return claimOne(port, vault, lien, log);
+}
+
+async function claimOne(port: KeeperPort, vault: Address, lien: Lien, log: Logger): Promise<VaultOutcome> {
+  try {
+    // Zero hints: MUSD re-searches the insert position after the seizure (gas only, always valid).
+    const receipt = await port.claimLien(vault, zeroAddress, zeroAddress);
+    const level = receipt.status === "success" ? "info" : "warn";
+    log[level]("claim sent", { vault, txHash: receipt.hash, txStatus: receipt.status, block: receipt.blockNumber, lien });
+    return { vault, action: "claimed", lien, receipt };
+  } catch (err) {
+    log.error("claim failed", { vault, ...errorContext(err) });
+    return { vault, action: "failed", stage: "claim", error: errorContext(err).error as string };
+  }
 }
 
 /** Counts per action, and per status for skipped vaults, e.g. { rescued: 1, skipped: 3, AboveTrigger: 2, NotOptedIn: 1 }. */
