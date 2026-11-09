@@ -79,10 +79,12 @@ infrastructure, not a standalone app. BTC is the native gas and collateral throu
 | Contract | Address |
 |---|---|
 | FuzzyFeePricer | [`0x3589A3D60FE9F9A4038933222B3e5fd8680aDE43`](https://explorer.test.mezo.org/address/0x3589A3D60FE9F9A4038933222B3e5fd8680aDE43) |
-| VaultFactory | [`0x1fF92E9f5557cb684aDd38fbd6EFbe99FeAd9Dac`](https://explorer.test.mezo.org/address/0x1fF92E9f5557cb684aDd38fbd6EFbe99FeAd9Dac) |
-| RescueMarket | [`0xbd145bA00b75cE417e94832B857A93Af7eBB1a75`](https://explorer.test.mezo.org/address/0xbd145bA00b75cE417e94832B857A93Af7eBB1a75) |
+| VaultFactory | [`0x2B2e0a1D856f4705a7c6f2Fc8e749a8979AA5365`](https://explorer.test.mezo.org/address/0x2B2e0a1D856f4705a7c6f2Fc8e749a8979AA5365) |
+| RescueMarket | [`0x74B97f9F66A1735F4fF81344f1DedFb63cDaaECd`](https://explorer.test.mezo.org/address/0x74B97f9F66A1735F4fF81344f1DedFb63cDaaECd) |
 
-All three are verified on Blockscout. MUSD protocol addresses are pinned in
+Deployed from commit `ff35e29` (seizure release, 2026-11-09). The on-chain runtime bytecode of the
+factory and market matches a local solc 0.8.28 build of that commit byte for byte. Blockscout source
+verification is pending. MUSD protocol addresses are pinned in
 [`deployments/testnet.json`](deployments/testnet.json).
 
 ## Repository layout

@@ -85,6 +85,14 @@
       "block": 16232366,
       "note": "Redeployed VaultFactory + RescueMarket wired to the existing FuzzyFeePricer; the MinimalFeePricer-wired factory/market are superseded. On-chain market.pricer()/factory()/factory.market() verified."
     },
+    "seizureRedeployAt": {
+      "date": "2026-11-09",
+      "gitCommit": "ff35e29",
+      "deployer": "0x32F786F4270457fAe178E22D624D7a57D08B43d3",
+      "script": "contracts/script/RewireFuzzy.s.sol",
+      "blocks": [16666550, 16666551],
+      "note": "Redeployed VaultFactory + RescueMarket with T1.7b seizure (seizeForLien/claimLien/recognizeLoss, two-asset pool, combined-ICR cap, min trigger buffer), still wired to the existing FuzzyFeePricer. MUSD impl pins rechecked by the script preflight. On-chain wiring + constructor params verified; runtime bytecode matches the build (immutables masked). Blockscout verification attempted 2026-11-09 via v1 (forge verify-contract: Fail - Unable to verify) and v2 standard-input (accepted, not verified); the submitted standard JSON reproduces the on-chain bytecode exactly with solc 0.8.28, so the failure is explorer-side. The 2026-10-18 factory/market and any vaults under them are superseded."
+    },
     "MinimalFeePricer": {
       "address": "0xfc91D4574B1053eAAABEc8e7150FB162ad4BbCcf",
       "tx": "0x106620356d614e3bab433ac48d1663f2bcda55174c3f4d3f801164bf2e913c2f",
@@ -116,31 +124,33 @@
       "explorer": "https://explorer.test.mezo.org/address/0x3589A3D60FE9F9A4038933222B3e5fd8680aDE43"
     },
     "VaultFactory": {
-      "address": "0x1fF92E9f5557cb684aDd38fbd6EFbe99FeAd9Dac",
-      "tx": "0xc29e70d69a78c13e821c277d6fc43cae608a2d446ac07cd2ab1398734ab70841",
-      "block": 16232366,
+      "address": "0x2B2e0a1D856f4705a7c6f2Fc8e749a8979AA5365",
+      "tx": "0xe8eefec9240abb3c83f822771bd3919bada87ca8878454e3f92e211b3f710e17",
+      "block": 16666550,
       "constructor": {
-        "market": "0xbd145bA00b75cE417e94832B857A93Af7eBB1a75"
+        "market": "0x74B97f9F66A1735F4fF81344f1DedFb63cDaaECd"
       },
-      "verified": true,
-      "explorer": "https://explorer.test.mezo.org/address/0x1fF92E9f5557cb684aDd38fbd6EFbe99FeAd9Dac",
-      "supersedes": "0x5D370d6b5B641110c687ab599D5C3ED0FdF832dd",
-      "note": "Rewired to FuzzyFeePricer (RewireFuzzy.s.sol, 2026-10-18). Previous MinimalFeePricer-wired factory 0x5D370d6b5B641110c687ab599D5C3ED0FdF832dd is superseded."
+      "verified": false,
+      "explorer": "https://explorer.test.mezo.org/address/0x2B2e0a1D856f4705a7c6f2Fc8e749a8979AA5365",
+      "supersedes": ["0x1fF92E9f5557cb684aDd38fbd6EFbe99FeAd9Dac", "0x5D370d6b5B641110c687ab599D5C3ED0FdF832dd"],
+      "note": "Seizure redeploy (2026-11-09). Previous fuzzy-wired factory 0x1fF92E9f5557cb684aDd38fbd6EFbe99FeAd9Dac (2026-10-18) and MinimalFeePricer-wired factory 0x5D370d6b5B641110c687ab599D5C3ED0FdF832dd are superseded."
     },
     "RescueMarket": {
-      "address": "0xbd145bA00b75cE417e94832B857A93Af7eBB1a75",
-      "tx": "0x3801d163d70e2b028aa7a7781626e9da8423b82be907cd32ce410ebe4f01a67f",
-      "block": 16232366,
+      "address": "0x74B97f9F66A1735F4fF81344f1DedFb63cDaaECd",
+      "tx": "0xca11301d56bd5605d16baa503a07b7705df3de68a9ac80123de99bcc51e8d3e7",
+      "block": 16666551,
       "constructor": {
         "pricer": "0x3589A3D60FE9F9A4038933222B3e5fd8680aDE43",
-        "factory": "0x1fF92E9f5557cb684aDd38fbd6EFbe99FeAd9Dac",
+        "factory": "0x2B2e0a1D856f4705a7c6f2Fc8e749a8979AA5365",
         "lienTerm": 604800,
-        "tipBps": 10
+        "tipBps": 10,
+        "seizePenaltyBps": 500,
+        "combinedICRFloor": "1200000000000000000"
       },
-      "verified": true,
-      "explorer": "https://explorer.test.mezo.org/address/0xbd145bA00b75cE417e94832B857A93Af7eBB1a75",
-      "supersedes": "0x73ee6C5334C8E32F0509380461b3157e47aCa184",
-      "note": "Now priced by FuzzyFeePricer (on-chain market.pricer() == 0x3589A3D60FE9F9A4038933222B3e5fd8680aDE43, confirmed). Previous MinimalFeePricer-wired market 0x73ee6C5334C8E32F0509380461b3157e47aCa184 is superseded."
+      "verified": false,
+      "explorer": "https://explorer.test.mezo.org/address/0x74B97f9F66A1735F4fF81344f1DedFb63cDaaECd",
+      "supersedes": ["0xbd145bA00b75cE417e94832B857A93Af7eBB1a75", "0x73ee6C5334C8E32F0509380461b3157e47aCa184"],
+      "note": "Seizure redeploy (2026-11-09), priced by FuzzyFeePricer (on-chain market.pricer() confirmed). Previous fuzzy-wired market 0xbd145bA00b75cE417e94832B857A93Af7eBB1a75 (2026-10-18) and MinimalFeePricer-wired market 0x73ee6C5334C8E32F0509380461b3157e47aCa184 are superseded."
     },
     "smokeTest": {
       "note": "factory.createVault() from the deployer; vault not opted in. ORPHANED after the 2026-10-18 fuzzy rewire: created under the superseded factory 0x5D370d6b5B641110c687ab599D5C3ED0FdF832dd and points at the old market. Not used in acceptance.",
