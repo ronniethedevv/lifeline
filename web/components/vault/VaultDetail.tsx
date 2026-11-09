@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { getAddress, type Address, type PublicClient } from "viem";
-import { useAccount, usePublicClient, useReadContracts } from "wagmi";
+import { useAccount, usePublicClient, useReadContract, useReadContracts } from "wagmi";
 import { Eyebrow, PageHeader } from "@/components/PageHeader";
 import { RiskBadge } from "@/components/RiskBadge";
 import { AnimatedNumber } from "@/components/ui/animated-number";
@@ -613,6 +613,78 @@ function RepayRescue({ address, s, onDone }: { address: Address; s: VaultSummary
   );
 }
 
+/** RescueMarket.RescueStatus.Ok: the vault is below its trigger and a rescue can run now. */
+const RESCUE_OK = 0;
+
+/**
+ * Anyone can rescue (RescueMarket.rescue is permissionless): when the contract's own preview says a
+ * rescue can run, show what it would do and let the viewer send it, earning the keeper tip. This keeps
+ * the product usable when no keeper is online.
+ */
+function RescueNow({ address, s, onDone }: { address: Address; s: VaultSummary; onDone: () => void }) {
+  const client = usePublicClient();
+  const { address: account } = useAccount();
+  const { data, refetch } = useReadContract({
+    ...market,
+    functionName: "previewRescue",
+    args: [address],
+    query: { refetchInterval: 15_000 },
+  });
+  const tx = useTx(() => {
+    void refetch();
+    onDone();
+  });
+  const q = data as
+    | { status: number; icr: bigint; repay: bigint; fee: bigint; tip: bigint; newNICR: bigint }
+    | undefined;
+  if (q === undefined || q.status !== RESCUE_OK) return null;
+
+  const feePct = q.repay > 0n ? `${(Number((q.fee * 10_000n) / q.repay) / 100).toFixed(2)}%` : "";
+  const run = () =>
+    tx.run(async () => {
+      if (!client) throw new Error("No RPC client");
+      const { upperHint, lowerHint } = await computeHints(client, q.newNICR);
+      return { ...market, functionName: "rescue", args: [address, upperHint, lowerHint] };
+    });
+
+  return (
+    <Card className="border-danger/30">
+      <CardHeader>
+        <div className="flex items-start justify-between gap-4">
+          <CardTitle>Rescue this loan</CardTitle>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-danger/25 bg-danger/10 px-2.5 py-1 text-xs font-medium text-danger">
+            <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden />
+            Below trigger
+          </span>
+        </div>
+        <CardDescription>
+          Loan health is {formatPercent(q.icr)}, below its {formatPercent(s.terms.triggerICR)} trigger. Anyone can
+          run the rescue: the pool repays part of the debt, and whoever sends it earns the keeper tip. A keeper
+          usually does this automatically.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <CostPreview title="What the rescue does">
+          <PreviewRow label="Pool repays" value={`${formatMusd(q.repay)} MUSD`} emphasis />
+          <PreviewRow label={`Rescue fee (fuzzy pricer, ${feePct})`} value={`${formatMusd(q.fee)} MUSD`} />
+          <PreviewRow label="Keeper tip, paid to you" value={`${formatMusd(q.tip)} MUSD`} />
+          <PreviewRow label="Loan health after" value={formatPercent(s.terms.targetICR)} />
+        </CostPreview>
+        {account === undefined ? (
+          <p className="flex items-center gap-1.5 text-sm text-text-muted">
+            <Lock className="h-3.5 w-3.5" />
+            Connect a wallet to run the rescue.
+          </p>
+        ) : null}
+        <Button onClick={run} loading={tx.busy} disabled={account === undefined}>
+          Rescue this loan
+        </Button>
+        <TxNote tx={tx} />
+      </CardContent>
+    </Card>
+  );
+}
+
 function Section({
   label,
   description,
@@ -697,6 +769,8 @@ export function VaultDetail({ address }: { address: Address }) {
       />
 
       <Health s={s} />
+
+      {s.hasTrove && !s.lien.active ? <RescueNow address={address} s={s} onDone={refetch} /> : null}
 
       {s.owner !== undefined && !isOwner ? (
         <div className="flex items-start gap-2.5 rounded-[12px] border border-border bg-bg-subtle p-4 text-sm text-text-muted">
