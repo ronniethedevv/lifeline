@@ -12,6 +12,8 @@
  * simulated on the node first (real oracle), then sent once and never retried.
  *
  * Key: DEMO_PRIVATE_KEY (keeper/.env), else DEPLOYER_PRIVATE_KEY (contracts/.env). Never printed.
+ * setup skips the pool deposit if the wallet already holds pool shares, so it can resume after a
+ * partial run without depositing twice.
  * Optional: DEMO_COLL_BTC (collateral, default: wallet BTC minus a gas reserve), DEMO_POOL_MUSD (default 1000).
  */
 import { readFileSync } from "node:fs";
@@ -26,6 +28,7 @@ import {
   type ContractFunctionArgs,
   type ContractFunctionName,
   type Hex,
+  type TransactionReceipt,
 } from "viem";
 import { hintHelpersAbi, positionVaultAbi, rescueMarketAbi, sortedTrovesAbi, vaultFactoryAbi } from "../src/abis.generated.js";
 import { makePublicClient, makeWalletClient, type MezoPublicClient, type MezoWalletClient } from "../src/chain.js";
@@ -44,6 +47,10 @@ const BTC_RESERVE = parseEther("0.002"); // left in the wallet for gas
 const DEFAULT_POOL_DEPOSIT = 1_000n * E18;
 const HINT_TRIALS = 50n;
 const RECEIPT_TIMEOUT_MS = 180_000;
+const RECEIPT_POLL_MS = 3_000;
+/** Any state-changing call costs well above the 21k base: a lower estimate is a bad RPC answer. */
+const MIN_PLAUSIBLE_GAS = 25_000n;
+const GAS_ESTIMATES = 3;
 
 const DEPLOYMENTS = fileURLToPath(new URL("../../deployments/testnet.json", import.meta.url));
 
@@ -142,6 +149,36 @@ async function hasTrove(c: Ctx, vault: Address): Promise<boolean> {
   return (await collAndDebt(c, vault)).debt > 0n;
 }
 
+/**
+ * Polls for a receipt, tolerating the public RPC's spurious "not found" answers (viem's
+ * waitForTransactionReceipt gives up on them). Never re-sends.
+ */
+async function waitReceipt(c: Ctx, hash: Hex): Promise<TransactionReceipt> {
+  const deadline = Date.now() + RECEIPT_TIMEOUT_MS;
+  for (;;) {
+    try {
+      return await c.client.getTransactionReceipt({ hash });
+    } catch (err) {
+      if (Date.now() > deadline) {
+        throw new Error(`No receipt for ${hash} after ${RECEIPT_TIMEOUT_MS / 1000}s. Check the explorer before re-running.`, { cause: err });
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, RECEIPT_POLL_MS));
+  }
+}
+
+/**
+ * Gas estimate with a sanity floor: the public RPC has returned bare-intrinsic estimates (21,064 for
+ * optIn, real cost ~46k) that the node then rejects. Re-estimate, then add a 25% buffer.
+ */
+async function safeGas(c: Ctx, call: CallSpec): Promise<bigint> {
+  for (let i = 0; i < GAS_ESTIMATES; i++) {
+    const est = await c.client.estimateContractGas({ account: c.wallet.account, ...call } as Parameters<MezoPublicClient["estimateContractGas"]>[0]);
+    if (est >= MIN_PLAUSIBLE_GAS) return (est * 125n) / 100n;
+  }
+  throw new Error(`Gas estimate stayed below ${MIN_PLAUSIBLE_GAS} for ${call.functionName}; not sending`);
+}
+
 async function run(c: Ctx, plan: PlannedTx[]): Promise<void> {
   console.log(`\nPlan (${c.send ? "SENDING" : "dry run, nothing sent"}):`);
   plan.forEach((tx, i) => {
@@ -155,9 +192,10 @@ async function run(c: Ctx, plan: PlannedTx[]): Promise<void> {
     const call = await tx.build();
     // Simulate on the node first (it runs Mezo's real oracle): a revert surfaces here, unsent.
     const { request } = await c.client.simulateContract({ account: c.wallet.account, ...call } as Parameters<MezoPublicClient["simulateContract"]>[0]);
-    const hash = await c.wallet.writeContract(request as Parameters<MezoWalletClient["writeContract"]>[0]);
+    const gas = await safeGas(c, call);
+    const hash = await c.wallet.writeContract({ ...request, gas } as Parameters<MezoWalletClient["writeContract"]>[0]);
     console.log(`  ${i + 1}. sent ${hash}`);
-    const receipt = await c.client.waitForTransactionReceipt({ hash, timeout: RECEIPT_TIMEOUT_MS });
+    const receipt = await waitReceipt(c, hash);
     console.log(`     ${receipt.status} in block ${receipt.blockNumber}`);
     if (receipt.status !== "success") throw new Error(`${tx.label}: reverted (${hash}); stopping`);
   }
@@ -213,7 +251,41 @@ async function status(c: Ctx): Promise<void> {
   );
 }
 
+function termsTx(vault: Address): PlannedTx {
+  return {
+    label: `vault.setRescueTerms(trigger ${pct(TRIGGER_ICR)}, target ${pct(TARGET_ICR)}, max ${fmt(MAX_RESCUE)} MUSD)`,
+    build: () => contractCall(vault, positionVaultAbi, "setRescueTerms", [TRIGGER_ICR, TARGET_ICR, MAX_RESCUE]),
+  };
+}
+
+function optInTx(vault: Address): PlannedTx {
+  return { label: "vault.optIn()", build: () => contractCall(vault, positionVaultAbi, "optIn", []) };
+}
+
+/** If the newest vault already has a loan, only the terms and opt-in steps can be missing. */
+async function resumeSetup(c: Ctx, vault: Address): Promise<void> {
+  const [terms, optedIn] = await Promise.all([
+    c.client.readContract({ address: vault, abi: positionVaultAbi, functionName: "rescueTerms" }),
+    c.client.readContract({ address: vault, abi: positionVaultAbi, functionName: "optedIn" }),
+  ]);
+  const termsSet = terms[0] === TRIGGER_ICR && terms[1] === TARGET_ICR && terms[2] === MAX_RESCUE;
+  console.log(`Vault ${vault} already has a loan: resuming (terms set: ${termsSet}, opted in: ${optedIn})`);
+  const plan: PlannedTx[] = [];
+  if (!termsSet) plan.push(termsTx(vault));
+  if (!optedIn) plan.push(optInTx(vault));
+  if (plan.length === 0) {
+    console.log("Setup is already complete. Next: pnpm demo push");
+    return;
+  }
+  await run(c, plan);
+}
+
 async function setup(c: Ctx): Promise<void> {
+  const current = await latestVault(c);
+  if (current !== undefined && (await hasTrove(c, current))) {
+    await resumeSetup(c, current);
+    return;
+  }
   const [p, btc, musdBal, rate, minNetDebt, gasComp] = await Promise.all([
     price(c),
     c.client.getBalance({ address: c.me }),
@@ -225,7 +297,12 @@ async function setup(c: Ctx): Promise<void> {
   const coll = process.env.DEMO_COLL_BTC ? parseEther(process.env.DEMO_COLL_BTC) : btc - BTC_RESERVE;
   const deposit = process.env.DEMO_POOL_MUSD ? parseEther(process.env.DEMO_POOL_MUSD) : DEFAULT_POOL_DEPOSIT;
   if (coll <= 0n || coll > btc - BTC_RESERVE) throw new Error(`Not enough BTC: have ${fmt(btc, 6)}, need collateral + ${fmt(BTC_RESERVE, 3)} reserve`);
-  if (deposit > musdBal) throw new Error(`Pool deposit ${fmt(deposit)} MUSD exceeds wallet MUSD ${fmt(musdBal)}`);
+  const [myShares, liquid] = await Promise.all([
+    c.client.readContract({ address: c.cfg.marketAddress, abi: rescueMarketAbi, functionName: "sharesOf", args: [c.me] }),
+    c.client.readContract({ address: c.cfg.marketAddress, abi: rescueMarketAbi, functionName: "liquidAssets" }),
+  ]);
+  const alreadyDeposited = myShares > 0n;
+  if (!alreadyDeposited && deposit > musdBal) throw new Error(`Pool deposit ${fmt(deposit)} MUSD exceeds wallet MUSD ${fmt(musdBal)}`);
 
   // Open at ~140%: total debt = net·(1 + rate) + gas comp.
   const collValue = (coll * p) / E18;
@@ -244,7 +321,8 @@ async function setup(c: Ctx): Promise<void> {
   if (headroom < expectedRepay) {
     throw new Error(`Collateral too small for a full rescue: repay ~${fmt(expectedRepay)} > room ${fmt(headroom)} above min debt. Add BTC.`);
   }
-  if (expectedRepay > deposit) throw new Error(`Pool deposit ${fmt(deposit)} is below the expected repay ${fmt(expectedRepay)}`);
+  const poolAfter = alreadyDeposited ? liquid : liquid + deposit;
+  if (expectedRepay > poolAfter) throw new Error(`Pool liquidity ${fmt(poolAfter)} is below the expected repay ${fmt(expectedRepay)}`);
 
   const existing = await latestVault(c);
   const reuse = existing !== undefined && !(await hasTrove(c, existing));
@@ -255,7 +333,10 @@ async function setup(c: Ctx): Promise<void> {
     return vaultRef.addr;
   };
 
-  const plan: PlannedTx[] = [
+  if (alreadyDeposited) console.log(`Pool: wallet already provides liquidity (${fmt(liquid)} MUSD available), skipping the deposit`);
+  const plan: PlannedTx[] = alreadyDeposited
+    ? []
+    : [
     {
       label: `MUSD.approve(RescueMarket, ${fmt(deposit)})`,
       build: () => contractCall(c.musd, erc20Abi, "approve", [c.cfg.marketAddress, deposit]),
