@@ -13,6 +13,48 @@ Mezo Passport or an EVM wallet via WalletConnect).
 
 ---
 
+## Try it
+
+### No wallet needed (about 2 minutes)
+
+1. **See a real rescue.** Open the demo vault
+   [`0xf9d7…B401`](https://lifeline-btc.vercel.app/vaults/0xf9d7AcA439c80aac7865e0BBA3C2daFa6BB1B401)
+   (read-only). Its loan was pushed below its 130% trigger to **127.6%**, an independent keeper rescued
+   it back to **150.0%**
+   ([rescue tx](https://explorer.test.mezo.org/tx/0xd7b131ed046c17549b24832180dfa7e0acfbc5fd1a4b62f93a526886e6bfd0be)),
+   and the borrower repaid the lien
+   ([repay tx](https://explorer.test.mezo.org/tx/0xa01a7c435b3cf7000db27bb9e4bded5c4fa9168aba2635af984ec6ae837ca2e1)).
+2. **Price a rescue.** On the [Pricer](https://lifeline-btc.vercel.app/pricer), move the loan health,
+   rescue size and system health sliders. The fee is computed in the page and checked against the
+   deployed FuzzyFeePricer ("Matches on-chain").
+3. **Look at the pool.** The [Provide](https://lifeline-btc.vercel.app/provide) page and the landing
+   page show the live rescue pool, utilisation and BTC price, read straight from Mezo testnet.
+
+### With a wallet (about 10 minutes, testnet funds only)
+
+1. **Wallet and network.** Use MetaMask, or a Bitcoin wallet through Mezo Passport. Mezo testnet:
+   chain ID `31611`, RPC `https://rpc.test.mezo.org`, currency `BTC`, explorer
+   `https://explorer.test.mezo.org`. The app's *Switch to Mezo testnet* button can add it for you.
+2. **Testnet BTC.** About **0.08 BTC** from the [Mezo faucet](https://faucet.test.mezo.org/). A rescue
+   can only repay debt above MUSD's 1,800 MUSD minimum, so a rescuable loan needs roughly 0.041 BTC or
+   more at today's price.
+3. **Heads-up:** MetaMask currently labels this new domain "high-risk". It's a reputation check on a
+   fresh `vercel.app` address, not a finding about the contracts; everything here is testnet-only.
+4. **Run the flow** on <https://lifeline-btc.vercel.app>:
+   1. *My vaults*, then **Create vault**.
+   2. **Open a loan**: 0.078 BTC collateral, borrow 3,900 MUSD. The cost preview shows about 141% loan
+      health and the room left for a rescue.
+   3. **Rescue terms**: trigger 130, target 150, max rescue 1,000, then **Opt in**.
+   4. **Borrow** 450 MUSD more. Loan health drops to about 127%: **Rescue zone**.
+   5. Wait for the rescue. A hosted keeper runs on GitHub Actions and usually rescues within a few
+      minutes, or press **Rescue this loan** on the vault page and earn the keeper tip yourself.
+      The vault shows **Rescued** at 150%.
+   6. **Repay rescue** (approve, then repay). The lien clears and the vault is back to normal.
+
+   Amounts assume BTC at about $74,000; the cost preview shows the health before you sign.
+
+---
+
 ## The problem
 
 An MUSD loan (a *trove*) is liquidated once its collateral ratio (ICR) falls below **110%**.

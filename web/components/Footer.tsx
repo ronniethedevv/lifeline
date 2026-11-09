@@ -70,6 +70,7 @@ export function Footer() {
               { label: "Explorer", href: "https://explorer.test.mezo.org" },
               { label: "Faucet", href: "https://faucet.test.mezo.org" },
               { label: "Source code", href: "https://github.com/ronniethedevv/lifeline" },
+              { label: "How to try it", href: "https://github.com/ronniethedevv/lifeline#try-it" },
             ]}
           />
         </div>
