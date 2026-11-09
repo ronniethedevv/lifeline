@@ -15,6 +15,7 @@
  * Key: DEMO_PRIVATE_KEY (keeper/.env), else DEPLOYER_PRIVATE_KEY (contracts/.env). Never printed.
  * setup skips the pool deposit if the wallet already holds pool shares, so it can resume after a
  * partial run without depositing twice.
+ * DEMO_VAULT=<address> makes push/rescue/repay/close act on that vault instead of the newest.
  * Optional: DEMO_COLL_BTC (collateral, default: wallet BTC minus a gas reserve), DEMO_POOL_MUSD (default 1000).
  */
 import { readFileSync } from "node:fs";
@@ -22,6 +23,7 @@ import { fileURLToPath } from "node:url";
 import {
   erc20Abi,
   formatEther,
+  isAddress,
   isHex,
   parseEther,
   type Abi,
@@ -367,7 +369,16 @@ async function setup(c: Ctx): Promise<void> {
   await run(c, plan);
 }
 
+/** The vault a step acts on: DEMO_VAULT if set (must be one of the wallet's vaults), else the newest. */
 async function requireVault(c: Ctx): Promise<Address> {
+  const override = process.env.DEMO_VAULT?.trim();
+  if (override !== undefined && override !== "") {
+    if (!isAddress(override)) throw new Error(`DEMO_VAULT is not an address: ${override}`);
+    const mine = await c.client.readContract({ address: c.cfg.factoryAddress, abi: vaultFactoryAbi, functionName: "vaultsOf", args: [c.me] });
+    const match = mine.find((v) => v.toLowerCase() === override.toLowerCase());
+    if (match === undefined) throw new Error(`DEMO_VAULT ${override} is not owned by ${c.me}`);
+    return match;
+  }
   const vault = await latestVault(c);
   if (vault === undefined) throw new Error("No vault yet: run setup first");
   return vault;
