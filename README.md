@@ -6,7 +6,10 @@ take a short-term *senior claim* on the borrower's BTC — priced on-chain by a 
 model. The borrower keeps their Bitcoin and its upside; the provider earns a fee.
 
 Built for the [AKINDO × Mezo Buildathon](https://app.akindo.io/wave-hacks/OVOO0gdrVU8379D10)
-(Track 1 — DeFi). Deployed and verified on **Mezo testnet**.
+(Track 1 — DeFi). Deployed on **Mezo testnet**.
+
+**Live app: <https://lifeline-btc.vercel.app>** (Mezo testnet only; connect a Bitcoin wallet via
+Mezo Passport or an EVM wallet via WalletConnect).
 
 ---
 
