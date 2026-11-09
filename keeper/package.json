@@ -11,6 +11,7 @@
     "gen:abis": "tsx scripts/gen-abis.ts",
     "start": "node --env-file-if-exists=.env --import tsx src/main.ts",
     "start:live": "node --env-file-if-exists=.env --import tsx src/main.ts --live",
+    "demo": "node --env-file-if-exists=../contracts/.env --env-file-if-exists=.env --import tsx scripts/demo.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

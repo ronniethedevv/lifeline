@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 const OUT = fileURLToPath(new URL("../../contracts/out/", import.meta.url));
 const KEEPER_FILE = fileURLToPath(new URL("../src/abis.generated.ts", import.meta.url));
 const E2E_FILE = fileURLToPath(new URL("../test/e2e/artifacts.generated.ts", import.meta.url));
+const DEMO_FILE = fileURLToPath(new URL("./demo-abis.generated.ts", import.meta.url));
 
 /** [export name, source file in out/, contract name] */
 const KEEPER_ABIS = [
@@ -34,6 +35,12 @@ const E2E_CREATION_CODE = [
   ["minimalFeePricerBytecode", "MinimalFeePricer.sol", "MinimalFeePricer"],
   ["vaultFactoryBytecode", "VaultFactory.sol", "VaultFactory"],
   ["rescueMarketBytecode", "RescueMarket.sol", "RescueMarket"],
+] as const;
+/** Demo script (T3.1): MUSD views it reads beyond the keeper's ABIs. */
+const DEMO_ABIS = [
+  ["borrowerOperationsAbi", "IBorrowerOperations.sol", "IBorrowerOperations"],
+  ["troveManagerAbi", "ITroveManager.sol", "ITroveManager"],
+  ["priceFeedAbi", "IPriceFeed.sol", "IPriceFeed"],
 ] as const;
 const E2E_RUNTIME_CODE = [["mockMezoOracleRuntime", "MezoForkBase.sol", "MockMezoOracle"]] as const;
 
@@ -72,10 +79,19 @@ export function generateE2e(): string {
   return HEADER + "\n" + [...abis, ...creation, ...runtime].join("\n");
 }
 
+export function generateDemo(): string {
+  const parts = DEMO_ABIS.map(
+    ([exportName, file, name]) =>
+      `export const ${exportName} = ${JSON.stringify(artifact(file, name).abi, null, 2)} as const;\n`,
+  );
+  return HEADER + "\n" + parts.join("\n");
+}
+
 function main(): void {
   const targets: [string, string][] = [
     [KEEPER_FILE, generateKeeper()],
     [E2E_FILE, generateE2e()],
+    [DEMO_FILE, generateDemo()],
   ];
   if (process.argv.includes("--check")) {
     const stale = targets.filter(([path, content]) => readFileSync(path, "utf8") !== content).map(([p]) => p);

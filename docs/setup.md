@@ -123,3 +123,21 @@ contracts/broadcast/
 node_modules/
 .next/
 ```
+
+## Scripted demo (T3.1)
+Drives a real vault on Mezo testnet into the rescue zone, lets the keeper rescue it, then repays.
+Run from `keeper/`. Every step prints its plan and sends nothing unless you add `--send`; with
+`--send` each transaction is simulated on the node first and sent once (never retried).
+
+```bash
+pnpm demo status            # wallet, pool, vault, rescue preview (read-only)
+pnpm demo setup --send      # deposit to pool, create vault, open loan at ~140%, terms 130/150, opt in
+pnpm demo push --send       # borrow until loan health is ~127% (rescue zone)
+pnpm start:live             # keeper rescues it (or: pnpm demo rescue --send)
+pnpm demo repay --send      # repay the rescue lien
+```
+
+Key: `DEMO_PRIVATE_KEY` in `keeper/.env`, else `DEPLOYER_PRIVATE_KEY` from `contracts/.env`.
+Sizing: a rescue can only repay down to MUSD's min net debt (1,800), so the loan needs about
+$3,000 of BTC collateral (about 0.041 BTC at $74k) plus a small gas reserve. `setup` refuses with
+the shortfall if the wallet is too small. Optional overrides: `DEMO_COLL_BTC`, `DEMO_POOL_MUSD`.
