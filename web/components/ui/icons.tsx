@@ -51,6 +51,26 @@ export function ArrowUpRight(props: IconProps) {
   );
 }
 
+/** Three-line menu toggle (mobile navigation). */
+export function Menu(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path d="M2.5 4.5h11" />
+      <path d="M2.5 8h11" />
+      <path d="M2.5 11.5h11" />
+    </Base>
+  );
+}
+
+export function Close(props: IconProps) {
+  return (
+    <Base {...props}>
+      <path d="M4 4l8 8" />
+      <path d="M12 4l-8 8" />
+    </Base>
+  );
+}
+
 export function Check(props: IconProps) {
   return (
     <Base {...props}>
