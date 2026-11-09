@@ -128,6 +128,7 @@ function keeperConfig(live: boolean): Config {
     live,
     pollIntervalMs: 1_000,
     readConcurrency: 4,
+    runForMs: undefined,
   };
 }
 

@@ -23,9 +23,17 @@ async function main(): Promise<void> {
     market: cfg.marketAddress,
     factory: cfg.factoryAddress,
     pollIntervalMs: cfg.pollIntervalMs,
+    runForMs: cfg.runForMs,
   });
 
   const stop = new AbortController();
+  if (cfg.runForMs !== undefined) {
+    // Scheduled runs (GitHub Actions): poll for a bounded window, then exit cleanly.
+    setTimeout(() => {
+      log.info("run window over, exiting", { runForMs: cfg.runForMs });
+      stop.abort();
+    }, cfg.runForMs).unref();
+  }
   for (const sig of ["SIGINT", "SIGTERM"] as const) {
     process.once(sig, () => {
       log.info("stopping", { signal: sig });

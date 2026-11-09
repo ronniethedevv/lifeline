@@ -17,6 +17,8 @@ export interface Config {
   pollIntervalMs: number;
   /** Max concurrent previewRescue reads per poll. */
   readConcurrency: number;
+  /** Stop after this long (ms); undefined = run until SIGINT/SIGTERM. */
+  runForMs: number | undefined;
 }
 
 const DEFAULT_RPC = "https://rpc.test.mezo.org";
@@ -75,5 +77,13 @@ export function loadConfig(env: NodeJS.ProcessEnv, argv: readonly string[], depl
     live,
     pollIntervalMs: positiveInt(env.POLL_INTERVAL_MS, DEFAULT_POLL_INTERVAL_MS, "POLL_INTERVAL_MS", MIN_POLL_INTERVAL_MS),
     readConcurrency: positiveInt(env.READ_CONCURRENCY, DEFAULT_READ_CONCURRENCY, "READ_CONCURRENCY"),
+    runForMs: runFor(argv),
   };
+}
+
+/** `--run-for=<seconds>`: stop after this long (scheduled CI runs). Absent = run until stopped. */
+function runFor(argv: readonly string[]): number | undefined {
+  const arg = argv.find((a) => a.startsWith("--run-for="));
+  if (arg === undefined) return undefined;
+  return positiveInt(arg.slice("--run-for=".length), 0, "--run-for") * 1000;
 }

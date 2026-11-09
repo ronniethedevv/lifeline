@@ -72,6 +72,13 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ POLL_INTERVAL_MS: "abc" }, [], deploymentsFile())).toThrow(ConfigError);
   });
 
+  it("runs forever unless --run-for is given (seconds, for scheduled CI runs)", () => {
+    expect(loadConfig({}, [], deploymentsFile()).runForMs).toBeUndefined();
+    expect(loadConfig({}, ["--run-for=270"], deploymentsFile()).runForMs).toBe(270_000);
+    expect(() => loadConfig({}, ["--run-for=0"], deploymentsFile())).toThrow(ConfigError);
+    expect(() => loadConfig({}, ["--run-for=abc"], deploymentsFile())).toThrow(ConfigError);
+  });
+
   it("reports an unreadable deployments file", () => {
     expect(() => loadConfig({}, [], "/nonexistent/testnet.json")).toThrow(/cannot read deployments/);
   });

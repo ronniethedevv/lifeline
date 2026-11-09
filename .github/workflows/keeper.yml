@@ -1,0 +1,57 @@
+# Hosted Lifeline keeper (free on public repos).
+#
+# GitHub starts a scheduled run every 5 minutes at best (often later under load). Each run polls
+# every 30 s for 4.5 minutes (`--run-for=270`) and exits, so rescues and expired-lien claims land
+# within about 30 s while a run is active. Testnet only: sends from the KEEPER_PRIVATE_KEY repository
+# secret (Settings > Secrets and variables > Actions), a dedicated testnet wallet. The key is never
+# printed; the keeper logs only its address.
+name: Keeper
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+# One keeper at a time: a new run waits for the previous one instead of double-sending.
+concurrency:
+  group: keeper
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  keeper:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: keeper
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.11.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: keeper/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Check the keeper secret is set
+        env:
+          KEEPER_PRIVATE_KEY: ${{ secrets.KEEPER_PRIVATE_KEY }}
+        run: |
+          if [ -z "$KEEPER_PRIVATE_KEY" ]; then
+            echo "::error::Set the KEEPER_PRIVATE_KEY repository secret (testnet keeper wallet)."
+            exit 1
+          fi
+
+      - name: Run the keeper for one window
+        env:
+          KEEPER_PRIVATE_KEY: ${{ secrets.KEEPER_PRIVATE_KEY }}
+        run: pnpm start:live --run-for=270
