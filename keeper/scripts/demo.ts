@@ -7,6 +7,7 @@
  *   pnpm demo push    [--send]       borrow more so loan health drops to ~127% (below the 130% trigger)
  *   pnpm demo rescue  [--send]       call rescue() from the demo wallet (fallback if no keeper is running)
  *   pnpm demo repay   [--send]       repay the rescue lien in full
+ *   pnpm demo close   [--send]       close the vault's loan and return its BTC (to reset for another run)
  *
  * Without --send every step only prints its plan (reads only). With --send each transaction is
  * simulated on the node first (real oracle), then sent once and never retried.
@@ -420,6 +421,31 @@ async function repay(c: Ctx): Promise<void> {
   ]);
 }
 
+/** Interest accrues between approve and close; vault.close() pulls only the exact amount. */
+const CLOSE_APPROVAL_BUFFER_BPS = 50n; // 0.5%
+
+async function close(c: Ctx): Promise<void> {
+  const vault = await requireVault(c);
+  const [{ coll, debt }, gasComp, held, lien, musdBal] = await Promise.all([
+    collAndDebt(c, vault),
+    c.client.readContract({ address: c.bo, abi: borrowerOperationsAbi, functionName: "MUSD_GAS_COMPENSATION" }),
+    c.client.readContract({ address: c.musd, abi: erc20Abi, functionName: "balanceOf", args: [vault] }),
+    c.client.readContract({ address: vault, abi: positionVaultAbi, functionName: "lien" }),
+    c.client.readContract({ address: c.musd, abi: erc20Abi, functionName: "balanceOf", args: [c.me] }),
+  ]);
+  if (debt === 0n) throw new Error("Vault has no open loan");
+  if (lien[2]) throw new Error("A rescue lien is active: run repay first");
+  const toBurn = debt - gasComp;
+  const pull = toBurn > held ? toBurn - held : 0n;
+  const approval = pull + (pull * CLOSE_APPROVAL_BUFFER_BPS) / 10_000n;
+  if (approval > musdBal) throw new Error(`Closing needs ~${fmt(approval)} MUSD, wallet has ${fmt(musdBal)}`);
+  console.log(`Vault ${vault}: debt ${fmt(debt)} MUSD, burns ~${fmt(toBurn)} (debt minus the ${fmt(gasComp)} gas reserve), returns ${fmt(coll, 6)} BTC`);
+  await run(c, [
+    { label: `MUSD.approve(vault, ${fmt(approval)})  (exact pull ~${fmt(pull)} + 0.5% for accruing interest)`, build: () => contractCall(c.musd, erc20Abi, "approve", [vault, approval]) },
+    { label: `vault.close()  ->  ${fmt(coll, 6)} BTC back to the wallet`, build: () => contractCall(vault, positionVaultAbi, "close", []) },
+  ]);
+}
+
 async function main(): Promise<void> {
   const [step = "status", ...rest] = process.argv.slice(2);
   const cfg = loadConfig(process.env, [], DEPLOYMENTS);
@@ -428,7 +454,7 @@ async function main(): Promise<void> {
   if (chainId !== 31_611) throw new Error(`Refusing to run on chain ${chainId}: Mezo testnet (31611) only`);
   const wallet = makeWalletClient(cfg.rpcUrl, demoKey(process.env));
   const c: Ctx = { cfg, client, wallet, me: wallet.account.address, ...musdAddresses(), send: rest.includes("--send") };
-  const steps: Record<string, (ctx: Ctx) => Promise<void>> = { status, setup, push, rescue, repay };
+  const steps: Record<string, (ctx: Ctx) => Promise<void>> = { status, setup, push, rescue, repay, close };
   const fn = steps[step];
   if (fn === undefined) throw new Error(`Unknown step "${step}". Use: ${Object.keys(steps).join(", ")}`);
   await fn(c);
