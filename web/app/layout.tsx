@@ -1,10 +1,9 @@
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
 import { ClientShell } from "./ClientShell";
 import "./globals.css";
 
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
-const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jetbrains-mono" });
+// Fonts come from the CSS stacks in globals.css (system-first) so the app builds and runs with no
+// network dependency on Google Fonts; swap in vendored Inter/JetBrains Mono later if desired.
 
 export const metadata: Metadata = {
   title: "Lifeline · MUSD rescue market on Mezo",
@@ -13,7 +12,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${inter.variable} ${mono.variable}`}>
+    <html lang="en">
       <body className="min-h-screen bg-bg font-sans text-text antialiased">
         <ClientShell>{children}</ClientShell>
       </body>

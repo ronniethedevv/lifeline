@@ -64,9 +64,12 @@ export interface Terms {
   maxRescue: bigint;
 }
 
-/** Rescue-terms validation (decision T1.2: MCR < trigger < target, maxRescue > 0). Null if valid. */
+/** Must match PositionVault.MIN_TRIGGER_BUFFER: the trigger sits at least 20 points above MCR (T1.7b). */
+export const MIN_TRIGGER_BUFFER = 200000000000000000n; // 0.2 * 1e18
+
+/** Rescue-terms validation (trigger >= MCR + 20pp, trigger < target, maxRescue > 0). Null if valid. */
 export function validateTerms({ mcr, triggerICR, targetICR, maxRescue }: Terms): string | null {
-  if (triggerICR <= mcr) return "Trigger must be above the liquidation ratio (MCR).";
+  if (triggerICR < mcr + MIN_TRIGGER_BUFFER) return "Trigger must be at least 20 points above the liquidation ratio.";
   if (targetICR <= triggerICR) return "Target must be above the trigger.";
   if (maxRescue === 0n) return "Max rescue must be greater than zero.";
   return null;

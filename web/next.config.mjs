@@ -1,6 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Lets a verification build use a separate folder (NEXT_DIST_DIR=.next-verify) without clobbering a running dev server.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   // Mezo Passport's orangekit packages ship raw TypeScript; let Next compile them.
   transpilePackages: [
     "@mezo-org/passport",

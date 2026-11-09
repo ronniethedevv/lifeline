@@ -1,13 +1,15 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useBitcoinAccount } from "@mezo-org/passport";
 import { useAccount, useBalance, useSwitchChain } from "wagmi";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { LoadingValue } from "@/components/ui/skeleton";
 import { formatBtc } from "@/lib/format";
 import { MEZO_TESTNET_CHAIN_ID } from "@/lib/wallet";
 
-function Row({ label, value }: { label: string; value: string }) {
+function Row({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
       <dt className="text-sm text-text-muted">{label}</dt>
@@ -46,8 +48,8 @@ export function AccountPanel() {
           <CardDescription>Lifeline runs on Mezo testnet (chain {MEZO_TESTNET_CHAIN_ID}).</CardDescription>
         </CardHeader>
         <CardContent>
-          <Button onClick={() => switchChain({ chainId: MEZO_TESTNET_CHAIN_ID })} disabled={switching}>
-            {switching ? "Switching…" : "Switch to Mezo testnet"}
+          <Button onClick={() => switchChain({ chainId: MEZO_TESTNET_CHAIN_ID })} loading={switching}>
+            Switch to Mezo testnet
           </Button>
         </CardContent>
       </Card>
@@ -71,7 +73,7 @@ export function AccountPanel() {
         <dl className="flex flex-col gap-3">
           {btcAddress ? <Row label="Bitcoin address" value={btcAddress} /> : null}
           <Row label="Mezo account" value={address} />
-          <Row label="Balance" value={balance === undefined ? "…" : `${formatBtc(balance.value)} BTC`} />
+          <Row label="Balance" value={balance === undefined ? <LoadingValue label="Loading balance" /> : `${formatBtc(balance.value)} BTC`} />
         </dl>
       </CardContent>
     </Card>

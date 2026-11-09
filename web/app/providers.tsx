@@ -2,7 +2,7 @@
 
 import "@rainbow-me/rainbowkit/styles.css";
 import { mezoTestnet } from "@mezo-org/passport";
-import { darkTheme, RainbowKitProvider } from "@rainbow-me/rainbowkit";
+import { lightTheme, RainbowKitProvider } from "@rainbow-me/rainbowkit";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { WagmiProvider } from "wagmi";
@@ -17,7 +17,7 @@ export function Providers({ children }: { children: ReactNode }) {
       <QueryClientProvider client={queryClient}>
         <RainbowKitProvider
           initialChain={mezoTestnet}
-          theme={darkTheme({ accentColor: "#f7931a", accentColorForeground: "#0b0d10", borderRadius: "medium" })}
+          theme={lightTheme({ accentColor: "#f7931a", accentColorForeground: "#ffffff", borderRadius: "large" })}
         >
           {children}
         </RainbowKitProvider>

@@ -4,10 +4,16 @@ import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { getAddress, type Address, type PublicClient } from "viem";
 import { useAccount, usePublicClient, useReadContract } from "wagmi";
+import { Eyebrow, PageHeader } from "@/components/PageHeader";
+import { RiskBadge } from "@/components/RiskBadge";
+import { AnimatedNumber } from "@/components/ui/animated-number";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { CostPreview, PreviewRow } from "@/components/ui/cost-preview";
+import { AlertCircle, ArrowLeft, Lock } from "@/components/ui/icons";
 import { Label } from "@/components/ui/label";
+import { LoadingValue } from "@/components/ui/skeleton";
+import { UnitInput } from "@/components/ui/unit-input";
 import { addresses, borrowerOperations, market, vault } from "@/lib/contracts";
 import { formatBtc, formatMusd, formatPercent, parseBtc, parseMusd, parsePercent } from "@/lib/format";
 import { nominalICR, validateTerms, RISK_META } from "@/lib/risk";
@@ -19,6 +25,15 @@ import { AmountAction, ApproveAndAct, safeMusd, TxNote } from "./shared";
 /** 200 MUSD gas compensation added to every trove's debt (architecture.md §3); used for hint projections. */
 const GAS_COMPENSATION = 200n * 10n ** 18n;
 
+/** Parse a BTC amount for live previews: 0n on empty or invalid input instead of throwing. */
+function safeBtc(raw: string): bigint {
+  try {
+    return parseBtc(raw);
+  } catch {
+    return 0n;
+  }
+}
+
 function hinter(client: PublicClient | undefined) {
   return (projColl: bigint, projDebt: bigint) => {
     if (!client) throw new Error("No RPC client");
@@ -26,16 +41,16 @@ function hinter(client: PublicClient | undefined) {
   };
 }
 
-function Stat({ label, value, mono = true }: { label: string; value: string; mono?: boolean }) {
+function Stat({ label, value, mono = true }: { label: string; value: ReactNode; mono?: boolean }) {
   return (
-    <div className="flex flex-col gap-0.5">
-      <dt className="text-sm text-text-muted">{label}</dt>
-      <dd className={mono ? "font-mono text-sm tabular-nums" : "text-sm"}>{value}</dd>
+    <div className="flex flex-col gap-1">
+      <dt className="text-xs text-text-muted">{label}</dt>
+      <dd className={mono ? "font-mono text-[0.95rem] tabular-nums text-text" : "text-[0.95rem] text-text"}>{value}</dd>
     </div>
   );
 }
 
-/** Risk-state token → text-colour class (matches ui_context.md risk tokens). */
+/** Risk-state token to text-colour class (matches ui_context.md risk tokens). */
 const STATE_TEXT: Record<string, string> = {
   safe: "text-safe",
   watch: "text-watch",
@@ -44,44 +59,60 @@ const STATE_TEXT: Record<string, string> = {
   "text-muted": "text-text-muted",
 };
 
-/** Loan-health hero — answers "am I safe?" first: the state and the ratio, large (ui_context.md). */
+/** Loan-health hero: answers "am I safe?" first: the state and the ratio, large (ui_context.md). */
 function Health({ s }: { s: VaultSummary }) {
   const meta = RISK_META[s.risk];
+  const noLoan = !s.isLoading && !s.hasTrove;
   const subtitle = s.lien.active
-    ? "A rescue lien is active — repay it to unlock your collateral."
-    : !s.hasTrove
-      ? "No loan in this vault yet."
+    ? "A rescue lien is active. Repay it to unlock your collateral."
+    : noLoan
+      ? "There is no loan in this vault yet."
       : s.liqPrice === undefined
-        ? " "
+        ? "Reading the live BTC price."
         : `Liquidated if BTC falls to $${formatMusd(s.liqPrice)}.`;
   return (
     <Card>
-      <CardContent className="p-5 sm:p-6">
-        <div className="flex items-end justify-between gap-4">
-          <div className="flex flex-col gap-1">
-            <span className="text-xs font-medium uppercase tracking-wider text-text-muted">Loan health</span>
-            <span className={`text-3xl font-semibold leading-none ${STATE_TEXT[meta.token]}`}>{meta.label}</span>
+      <CardContent className="p-6 sm:p-7">
+        <div className="flex flex-wrap items-end justify-between gap-6">
+          <div className="flex flex-col gap-2.5">
+            <Eyebrow>Loan health</Eyebrow>
+            <span
+              className={`flex items-center gap-2.5 text-[2rem] font-medium leading-none tracking-[-0.03em] ${STATE_TEXT[meta.token]}`}
+            >
+              <span className="h-2.5 w-2.5 rounded-full bg-current" aria-hidden />
+              {meta.label}
+            </span>
             <span className="text-sm text-text-muted">{subtitle}</span>
           </div>
-          <div className="flex shrink-0 flex-col items-end gap-0.5">
-            <span className="font-mono text-3xl font-semibold leading-none tabular-nums">
-              {s.icr === undefined ? "—" : formatPercent(s.icr)}
-            </span>
-            <span className="text-xs text-text-muted">Collateral ratio</span>
+          <div className="flex shrink-0 flex-col items-end gap-1.5">
+            {noLoan ? (
+              <span className="text-sm text-text-muted">No open loan</span>
+            ) : s.icr === undefined ? (
+              <LoadingValue className="h-8 w-28" label="Loading collateral ratio" />
+            ) : (
+              <AnimatedNumber
+                value={formatPercent(s.icr)}
+                className="font-mono text-[2rem] font-medium tracking-tight tabular-nums"
+              />
+            )}
+            <span className="text-xs text-text-muted">Collateral ratio (ICR)</span>
           </div>
         </div>
 
-        <dl className="mt-5 grid grid-cols-3 gap-4 border-t border-border pt-4">
-          <Stat label="Debt" value={`${formatMusd(s.debt)} MUSD`} />
-          <Stat label="Collateral" value={`${formatBtc(s.coll)} BTC`} />
-          <Stat label="BTC price" value={s.price === undefined ? "—" : `$${formatMusd(s.price)}`} />
+        <dl className="hairline mt-6 grid grid-cols-3 gap-4 pt-5">
+          <Stat label="Debt" value={s.isLoading ? <LoadingValue /> : `${formatMusd(s.debt)} MUSD`} />
+          <Stat label="Collateral" value={s.isLoading ? <LoadingValue /> : `${formatBtc(s.coll)} BTC`} />
+          <Stat label="BTC price" value={s.price === undefined ? <LoadingValue /> : `$${formatMusd(s.price)}`} />
         </dl>
 
         {s.lien.active ? (
-          <p className="mt-4 rounded-[var(--radius)] border border-lien/40 bg-lien/10 p-3 text-sm text-lien">
-            Rescued — a lien of {formatMusd(s.lien.amount)} MUSD is active. Withdrawals, borrowing and closing are
-            blocked until you repay the rescue.
-          </p>
+          <div className="mt-5 flex items-start gap-2.5 rounded-sm border border-lien/25 bg-lien/10 p-3.5 text-sm text-lien">
+            <Lock className="mt-0.5" />
+            <p>
+              Rescued. A lien of <span className="font-mono tabular-nums">{formatMusd(s.lien.amount)} MUSD</span> is
+              active. Withdrawals, borrowing and closing are blocked until you repay the rescue.
+            </p>
+          </div>
         ) : null}
       </CardContent>
     </Card>
@@ -96,7 +127,7 @@ function OpenLoan({ address, s, onDone }: { address: Address; s: VaultSummary; o
   const [debt, setDebt] = useState("");
   const { data: minNetDebtData } = useReadContract({ ...borrowerOperations, functionName: "minNetDebt" });
   const minNetDebt = minNetDebtData as bigint | undefined;
-  const minLabel = minNetDebt !== undefined ? formatMusd(minNetDebt) : "1,800";
+  const minLabel = minNetDebt !== undefined ? formatMusd(minNetDebt) : "1,800.00";
   const belowMin = minNetDebt !== undefined && safeMusd(debt) > 0n && safeMusd(debt) < minNetDebt;
   const tx = useTx(() => {
     setColl("");
@@ -111,30 +142,53 @@ function OpenLoan({ address, s, onDone }: { address: Address; s: VaultSummary; o
       return { ...vault(address), functionName: "open", args: [debtAmount, upperHint, lowerHint], value };
     });
 
+  // Live pre-sign projection (ignores the small borrowing fee).
+  const collWei = safeBtc(coll);
+  const debtWei = safeMusd(debt);
+  const totalDebt = debtWei + GAS_COMPENSATION;
+  const price = s.price;
+  const preview =
+    price !== undefined && collWei > 0n && debtWei > 0n
+      ? { value: (collWei * price) / 10n ** 18n, icr: (collWei * price) / totalDebt }
+      : undefined;
+
   return (
     <Card>
       <CardHeader>
         <CardTitle>Open a loan</CardTitle>
         <CardDescription>
-          Deposit BTC as collateral and borrow MUSD. Minimum borrow is {minLabel} MUSD; a loan near the minimum has
-          little rescue headroom.
+          Deposit BTC as collateral and borrow MUSD. The minimum borrow is {minLabel} MUSD, and a loan close to the
+          minimum has little room to be rescued.
         </CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        <div className="flex flex-col gap-1">
-          <Label htmlFor="coll">Collateral (BTC)</Label>
-          <Input id="coll" value={coll} onChange={(e) => setColl(e.target.value)} placeholder="0.05" inputMode="decimal" disabled={tx.busy} />
+      <CardContent className="flex flex-col gap-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="coll">Collateral</Label>
+            <UnitInput id="coll" unit="BTC" value={coll} onChange={(e) => setColl(e.target.value)} placeholder="0.05" disabled={tx.busy} />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="debt">Borrow</Label>
+            <UnitInput id="debt" unit="MUSD" value={debt} onChange={(e) => setDebt(e.target.value)} placeholder="1,800" disabled={tx.busy} />
+          </div>
         </div>
-        <div className="flex flex-col gap-1">
-          <Label htmlFor="debt">Borrow (MUSD)</Label>
-          <Input id="debt" value={debt} onChange={(e) => setDebt(e.target.value)} placeholder="1800" inputMode="decimal" disabled={tx.busy} />
-        </div>
-        {belowMin ? <p className="text-sm text-danger">Minimum borrow is {minLabel} MUSD.</p> : null}
-        <Button onClick={submit} disabled={tx.busy || coll.trim() === "" || debt.trim() === "" || belowMin}>
-          {tx.busy ? "Opening…" : "Open loan"}
+        {belowMin ? (
+          <p className="flex items-center gap-1.5 text-sm text-danger">
+            <AlertCircle />
+            The minimum borrow is {minLabel} MUSD.
+          </p>
+        ) : null}
+        {preview ? (
+          <CostPreview>
+            <PreviewRow label="Collateral value" value={`$${formatMusd(preview.value)}`} />
+            <PreviewRow label="Debt incl. 200 MUSD gas reserve" value={`${formatMusd(totalDebt)} MUSD`} />
+            <PreviewRow label="Starting loan health" value={<AnimatedNumber value={formatPercent(preview.icr)} />} emphasis />
+          </CostPreview>
+        ) : null}
+        <Button onClick={submit} loading={tx.busy} disabled={coll.trim() === "" || debt.trim() === "" || belowMin}>
+          Open loan
         </Button>
         <TxNote tx={tx} />
-        {s.price !== undefined ? <p className="text-xs text-text-muted">BTC price: ${formatMusd(s.price)}</p> : null}
       </CardContent>
     </Card>
   );
@@ -145,7 +199,7 @@ function ManageTrove({ address, s, onDone }: { address: Address; s: VaultSummary
   const client = usePublicClient();
   const hints = hinter(client);
   const lien = s.lien.active;
-  const closeTx = useTx(onDone);
+  const lienReason = lien ? "Blocked while a rescue lien is active." : undefined;
   const refiTx = useTx(onDone);
   const claimTx = useTx(onDone);
 
@@ -153,10 +207,10 @@ function ManageTrove({ address, s, onDone }: { address: Address; s: VaultSummary
     <Card>
       <CardHeader>
         <CardTitle>Manage loan</CardTitle>
-        <CardDescription>Add or withdraw collateral, borrow or repay MUSD.</CardDescription>
+        <CardDescription>Add or withdraw collateral, borrow more or repay MUSD.</CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-col gap-5">
-        <Section label="Add collateral">
+      <CardContent className="flex flex-col divide-y divide-border">
+        <Section label="Add collateral" description="Raises loan health immediately.">
           <AmountAction
             cta="Add BTC"
             unit="BTC"
@@ -168,9 +222,9 @@ function ManageTrove({ address, s, onDone }: { address: Address; s: VaultSummary
           />
         </Section>
 
-        <Section label="Withdraw collateral" disabledReason={lien ? "Blocked while a rescue lien is active." : undefined}>
+        <Section label="Withdraw collateral" disabledReason={lienReason}>
           <AmountAction
-            cta="Withdraw BTC"
+            cta="Withdraw"
             unit="BTC"
             disabled={lien}
             onDone={onDone}
@@ -181,7 +235,7 @@ function ManageTrove({ address, s, onDone }: { address: Address; s: VaultSummary
           />
         </Section>
 
-        <Section label="Borrow MUSD" disabledReason={lien ? "Blocked while a rescue lien is active." : undefined}>
+        <Section label="Borrow MUSD" disabledReason={lienReason}>
           <AmountAction
             cta="Borrow"
             unit="MUSD"
@@ -195,43 +249,48 @@ function ManageTrove({ address, s, onDone }: { address: Address; s: VaultSummary
           />
         </Section>
 
-        <Section label="Repay MUSD" description="Approve MUSD, then repay. Lowers your debt and raises loan health.">
+        <Section label="Repay MUSD" description="Lowers your debt and raises loan health.">
           <RepayDebt address={address} s={s} hints={hints} onDone={onDone} />
         </Section>
 
-        <div className="flex flex-wrap gap-2 border-t border-border pt-4">
-          <Button
-            variant="outline"
-            disabled={refiTx.busy}
-            onClick={() =>
-              refiTx.run(async () => {
-                const { upperHint, lowerHint } = await hints(s.coll, s.debt);
-                return { ...vault(address), functionName: "refinance", args: [upperHint, lowerHint] };
-              })
-            }
-          >
-            {refiTx.busy ? "…" : "Refinance rate"}
-          </Button>
-          <Button
-            variant="outline"
-            disabled={lien || claimTx.busy}
-            onClick={() => claimTx.run(() => ({ ...vault(address), functionName: "claimCollateral" }))}
-          >
-            {claimTx.busy ? "…" : "Claim surplus BTC"}
-          </Button>
-        </div>
-        <TxNote tx={refiTx} />
-        <TxNote tx={claimTx} />
+        <Section label="More actions">
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              loading={refiTx.busy}
+              onClick={() =>
+                refiTx.run(async () => {
+                  const { upperHint, lowerHint } = await hints(s.coll, s.debt);
+                  return { ...vault(address), functionName: "refinance", args: [upperHint, lowerHint] };
+                })
+              }
+            >
+              Refinance rate
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              loading={claimTx.busy}
+              disabled={lien}
+              onClick={() => claimTx.run(() => ({ ...vault(address), functionName: "claimCollateral" }))}
+            >
+              Claim surplus BTC
+            </Button>
+          </div>
+          <TxNote tx={refiTx} />
+          <TxNote tx={claimTx} />
+        </Section>
 
         <Section
           label="Close loan"
-          description="Repays the full debt and returns your BTC. Approve the MUSD needed to close, then close."
-          disabledReason={lien ? "Blocked while a rescue lien is active." : undefined}
+          description="Repays the full debt and returns all of your BTC."
+          disabledReason={lienReason}
         >
           <ApproveAndAct
             spender={address}
             needed={lien ? 0n : s.debt}
-            actionLabel={closeTx.busy ? "…" : "Close loan"}
+            actionLabel="Close loan"
             disabled={lien}
             onDone={onDone}
             build={() => ({ ...vault(address), functionName: "close" })}
@@ -257,7 +316,7 @@ function RepayDebt({
   const amt = safeMusd(raw);
   return (
     <div className="flex flex-col gap-2">
-      <Input value={raw} onChange={(e) => setRaw(e.target.value)} placeholder="Amount (MUSD)" inputMode="decimal" />
+      <UnitInput unit="MUSD" value={raw} onChange={(e) => setRaw(e.target.value)} placeholder="0.00" aria-label="Amount to repay in MUSD" />
       <ApproveAndAct
         spender={address}
         needed={amt}
@@ -304,55 +363,82 @@ function RescueTermsForm({ address, s, onDone }: { address: Address; s: VaultSum
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Rescue terms</CardTitle>
+        <div className="flex items-start justify-between gap-4">
+          <CardTitle>Rescue terms</CardTitle>
+          {s.optedIn ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-safe/25 bg-safe/10 px-2.5 py-1 text-xs font-medium text-safe">
+              <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden />
+              Opted in
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-2 px-2.5 py-1 text-xs font-medium text-text-muted">
+              <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden />
+              Not opted in
+            </span>
+          )}
+        </div>
         <CardDescription>
-          When loan health falls below your trigger, Lifeline repays part of your loan to restore the target. Trigger
-          must be above {s.mcr === undefined ? "the liquidation ratio" : formatPercent(s.mcr)} and below the target.
+          When loan health falls below your trigger, Lifeline repays part of your loan to restore the target. The
+          trigger must sit at least 20 points above the {s.mcr === undefined ? "" : `${formatPercent(s.mcr)} `}
+          liquidation ratio and below the target.
         </CardDescription>
       </CardHeader>
-      <CardContent className="flex flex-col gap-4">
+      <CardContent className="flex flex-col gap-5">
         {s.optedIn ? (
-          <p className="text-sm text-safe">
-            Opted in. Current terms: trigger {formatPercent(s.terms.triggerICR)}, target {formatPercent(s.terms.targetICR)},
-            max rescue {formatMusd(s.terms.maxRescue)} MUSD.
-          </p>
+          <dl className="grid grid-cols-3 gap-4 rounded-[12px] border border-border bg-bg-subtle p-4">
+            <Stat label="Trigger" value={formatPercent(s.terms.triggerICR)} />
+            <Stat label="Target" value={formatPercent(s.terms.targetICR)} />
+            <Stat label="Max rescue" value={`${formatMusd(s.terms.maxRescue)} MUSD`} />
+          </dl>
         ) : (
-          <p className="text-sm text-text-muted">Not opted in — this loan cannot be rescued yet.</p>
+          <p className="text-sm text-text-muted">This loan cannot be rescued until you set terms and opt in.</p>
         )}
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <Field label="Trigger ICR (%)" value={trigger} onChange={setTrigger} placeholder="130" disabled={lien} />
-          <Field label="Target ICR (%)" value={target} onChange={setTarget} placeholder="150" disabled={lien} />
-          <Field label="Max rescue (MUSD)" value={maxRescue} onChange={setMaxRescue} placeholder="500" disabled={lien} />
+          <Field id="trigger" label="Trigger" unit="%" value={trigger} onChange={setTrigger} placeholder="130" disabled={lien} />
+          <Field id="target" label="Target" unit="%" value={target} onChange={setTarget} placeholder="150" disabled={lien} />
+          <Field id="max" label="Max rescue" unit="MUSD" value={maxRescue} onChange={setMaxRescue} placeholder="500" disabled={lien} />
         </div>
-        {err ? <p className="text-sm text-danger">{err}</p> : null}
+        {err ? (
+          <p className="flex items-center gap-1.5 text-sm text-danger">
+            <AlertCircle />
+            {err}
+          </p>
+        ) : null}
 
         <div className="flex flex-wrap gap-2">
           <Button
             onClick={submit}
-            disabled={lien || save.busy || trigger.trim() === "" || target.trim() === "" || maxRescue.trim() === ""}
+            loading={save.busy}
+            disabled={lien || trigger.trim() === "" || target.trim() === "" || maxRescue.trim() === ""}
           >
-            {save.busy ? "Saving…" : "Save terms"}
+            Save terms
           </Button>
           {s.optedIn ? (
             <Button
               variant="outline"
-              disabled={lien || optOut.busy}
+              loading={optOut.busy}
+              disabled={lien}
               onClick={() => optOut.run(() => ({ ...vault(address), functionName: "optOut" }))}
             >
-              {optOut.busy ? "…" : "Opt out"}
+              Opt out
             </Button>
           ) : (
             <Button
               variant="outline"
-              disabled={optIn.busy}
+              loading={optIn.busy}
               onClick={() => optIn.run(() => ({ ...vault(address), functionName: "optIn" }))}
             >
-              {optIn.busy ? "…" : "Opt in"}
+              Opt in
             </Button>
           )}
         </div>
-        {lien ? <p className="text-sm text-text-muted">Terms are locked while a rescue lien is active.</p> : null}
+        {lien ? (
+          <p className="flex items-center gap-1.5 text-xs text-text-muted">
+            <Lock className="h-3.5 w-3.5" />
+            Terms are locked while a rescue lien is active.
+          </p>
+        ) : null}
         <TxNote tx={save} />
         <TxNote tx={optIn} />
         <TxNote tx={optOut} />
@@ -363,15 +449,38 @@ function RescueTermsForm({ address, s, onDone }: { address: Address; s: VaultSum
 
 /** Repay an active rescue lien: approve MUSD to the market, then repayLien (ui_context.md "Repay rescue"). */
 function RepayRescue({ address, s, onDone }: { address: Address; s: VaultSummary; onDone: () => void }) {
+  const due = new Date(Number(s.lien.dueBy) * 1000);
+  const overdue = Date.now() > due.getTime();
+  const dueLabel = due.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
   return (
-    <Card className="border-lien/40">
+    <Card className="border-lien/30">
       <CardHeader>
-        <CardTitle>Repay rescue</CardTitle>
-        <CardDescription>
-          Repay the {formatMusd(s.lien.amount)} MUSD lien to clear it and unlock your collateral.
-        </CardDescription>
+        <div className="flex items-start justify-between gap-4">
+          <CardTitle>Repay rescue</CardTitle>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-lien/25 bg-lien/10 px-2.5 py-1 text-xs font-medium text-lien">
+            <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden />
+            Lien active
+          </span>
+        </div>
+        <CardDescription>Repaying clears the lien and unlocks your collateral.</CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex flex-col gap-4">
+        <CostPreview title="Amount due">
+          <PreviewRow label="Lien (repaid debt, fee and keeper tip)" value={`${formatMusd(s.lien.amount)} MUSD`} emphasis />
+          <PreviewRow label={overdue ? "Was due" : "Due by"} value={dueLabel} />
+        </CostPreview>
+        {overdue ? (
+          <p className="flex items-center gap-1.5 text-sm text-danger">
+            <AlertCircle />
+            This lien is past due. Repay it to keep full control of your collateral.
+          </p>
+        ) : null}
         <ApproveAndAct
           spender={addresses.rescueMarket}
           needed={s.lien.amount}
@@ -396,32 +505,50 @@ function Section({
   children: ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-1.5">
-      <h3 className="text-sm font-medium">{label}</h3>
-      {description ? <p className="text-xs text-text-muted">{description}</p> : null}
+    <div className="flex flex-col gap-2.5 py-5 first:pt-0 last:pb-0">
+      <div className="flex flex-col gap-0.5">
+        <h3 className="text-sm font-medium text-text">{label}</h3>
+        {description ? <p className="text-xs text-text-muted">{description}</p> : null}
+      </div>
       {children}
-      {disabledReason ? <p className="text-xs text-text-muted">{disabledReason}</p> : null}
+      {disabledReason ? (
+        <p className="flex items-center gap-1.5 text-xs text-text-muted">
+          <Lock className="h-3.5 w-3.5" />
+          {disabledReason}
+        </p>
+      ) : null}
     </div>
   );
 }
 
 function Field({
+  id,
   label,
+  unit,
   value,
   onChange,
   placeholder,
   disabled,
 }: {
+  id: string;
   label: string;
+  unit: string;
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   disabled?: boolean;
 }) {
   return (
-    <div className="flex flex-col gap-1">
-      <Label>{label}</Label>
-      <Input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} inputMode="decimal" disabled={disabled} />
+    <div className="flex flex-col gap-1.5">
+      <Label htmlFor={id}>{label}</Label>
+      <UnitInput
+        id={id}
+        unit={unit}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        disabled={disabled}
+      />
     </div>
   );
 }
@@ -434,22 +561,31 @@ export function VaultDetail({ address }: { address: Address }) {
   const refetch = s.refetch;
 
   return (
-    <section className="flex flex-col gap-4">
-      <Link href="/vaults" className="text-sm text-text-muted hover:text-text">
-        ← My vaults
+    <section className="flex flex-col gap-5">
+      <Link
+        href="/vaults"
+        className="group inline-flex w-fit items-center gap-1.5 text-sm text-text-muted transition-colors hover:text-text"
+      >
+        <ArrowLeft className="h-3.5 w-3.5 transition-transform group-hover:-translate-x-0.5" />
+        My vaults
       </Link>
-      <h1 className="font-mono text-sm text-text-muted">{address}</h1>
+      <PageHeader
+        eyebrow="Vault"
+        title="Loan overview"
+        description={<span className="break-all font-mono text-xs">{address}</span>}
+        actions={<RiskBadge state={s.risk} />}
+      />
 
       <Health s={s} />
 
       {s.owner !== undefined && !isOwner ? (
-        <Card>
-          <CardHeader>
-            <CardDescription>
-              You are not the owner of this vault, so it is read-only. Owner: <span className="font-mono">{s.owner}</span>
-            </CardDescription>
-          </CardHeader>
-        </Card>
+        <div className="flex items-start gap-2.5 rounded-[12px] border border-border bg-bg-subtle p-4 text-sm text-text-muted">
+          <Lock className="mt-0.5" />
+          <p>
+            You are not the owner of this vault, so it is read-only. Owner{" "}
+            <span className="break-all font-mono text-text">{s.owner}</span>
+          </p>
+        </div>
       ) : null}
 
       {isOwner ? (

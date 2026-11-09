@@ -2,7 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { useReadContract } from "wagmi";
+import { AnimatedNumber } from "@/components/ui/animated-number";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/PageHeader";
+import { AlertCircle, Check, Spinner } from "@/components/ui/icons";
 import { fuzzyPricer } from "@/lib/contracts";
 import { bpsToPct, feeBps, pctToWad } from "@/lib/pricer";
 import { MEZO_TESTNET_CHAIN_ID } from "@/lib/wallet";
@@ -34,7 +37,7 @@ function Slider({
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
         aria-label={label}
-        className="h-2 w-full cursor-pointer accent-accent"
+        className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-surface-2 accent-accent [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:shadow-[0_1px_3px_rgba(15,17,21,0.25)]"
       />
     </div>
   );
@@ -65,37 +68,53 @@ export function PricerExplorer() {
   const onchain = onchainRaw as bigint | undefined;
   const settled = debounced.icr === icr && debounced.size === size && debounced.tcr === tcr;
 
-  const verifyLine =
-    !settled || isFetching
-      ? "verifying on-chain…"
-      : onchain === undefined
-        ? "on-chain read unavailable — retrying"
-        : onchain === computed
-          ? `on-chain: ${bpsToPct(onchain)} ✓ matches`
-          : `on-chain: ${bpsToPct(onchain)}`;
+  const verifying = !settled || isFetching;
+  const verifyLine = verifying ? (
+    <span className="inline-flex items-center gap-1.5 text-text-muted">
+      <Spinner className="h-3 w-3" />
+      Checking against the deployed contract
+    </span>
+  ) : onchain === undefined ? (
+    <span className="inline-flex items-center gap-1.5 text-watch">
+      <AlertCircle className="h-3 w-3" />
+      Contract read unavailable. Retrying.
+    </span>
+  ) : onchain === computed ? (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-safe/25 bg-safe/10 px-2.5 py-0.5 text-safe">
+      <Check className="h-3 w-3" />
+      Matches on-chain: {bpsToPct(onchain)}
+    </span>
+  ) : (
+    <span className="text-text-muted">On-chain: {bpsToPct(onchain)}</span>
+  );
 
   return (
-    <section className="flex flex-col gap-4">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold">Pricer</h1>
-        <p className="max-w-xl text-sm text-text-muted">
-          Every rescue&apos;s fee is set on-chain by a fuzzy-logic model committed at deployment — no oracle, no
-          off-chain input. Move the sliders to see the fee it would charge.
-        </p>
-      </div>
+    <section className="flex flex-col gap-5">
+      <PageHeader
+        eyebrow="Pricer"
+        title={
+          <>
+            What a rescue <span className="text-accent">costs</span>
+          </>
+        }
+        description="Every rescue fee is set on-chain by a fuzzy-logic model committed at deployment, with no off-chain input. Move the sliders to see the fee it would charge."
+      />
 
       <Card>
         <CardHeader>
           <CardTitle>Rescue fee</CardTitle>
           <CardDescription>
-            Fuzzy inference over loan health, rescue size and system health. Committed table: min 1% · max 10%.
+            Fuzzy inference over loan health, rescue size and system health. The committed table ranges from 1% to 10%.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-6">
-          <div className="flex flex-col items-center gap-1 rounded-[var(--radius)] border border-border bg-surface-2 py-6">
-            <span className="font-mono text-5xl font-semibold tabular-nums text-accent">{bpsToPct(computed)}</span>
+          <div className="flex flex-col items-center gap-1 rounded-sm border border-border bg-bg-subtle py-7">
+            <AnimatedNumber
+              value={bpsToPct(computed)}
+              className="font-mono text-6xl font-medium tracking-tight text-accent"
+            />
             <span className="text-xs text-text-muted">of the repaid amount</span>
-            <span className="mt-1 text-xs text-text-muted">{verifyLine}</span>
+            <span className="mt-2 text-xs" aria-live="polite">{verifyLine}</span>
           </div>
 
           <div className="flex flex-col gap-5">
@@ -104,23 +123,23 @@ export function PricerExplorer() {
             <Slider label="System health (TCR)" value={tcr} min={150} max={220} onChange={setTcr} />
           </div>
 
-          <dl className="grid grid-cols-3 gap-4 border-t border-border pt-4 text-xs">
+          <dl className="hairline grid grid-cols-3 gap-4 pt-5 text-xs">
             <div>
               <dt className="text-text-muted">ICR thresholds</dt>
-              <dd className="font-mono tabular-nums">110 · 125 · 150%</dd>
+              <dd className="font-mono tabular-nums">110, 125, 150%</dd>
             </div>
             <div>
               <dt className="text-text-muted">Size thresholds</dt>
-              <dd className="font-mono tabular-nums">5 · 20 · 40%</dd>
+              <dd className="font-mono tabular-nums">5, 20, 40%</dd>
             </div>
             <div>
               <dt className="text-text-muted">TCR thresholds</dt>
-              <dd className="font-mono tabular-nums">150 · 170 · 200%</dd>
+              <dd className="font-mono tabular-nums">150, 170, 200%</dd>
             </div>
           </dl>
           <p className="text-xs text-text-muted">
-            The 27-cell rule table and breakpoints are fixed in the contract and emitted on-chain (
-            <span className="font-mono">PricerCommitted</span>). This page computes the fee locally and reads{" "}
+            The 27-cell rule table and breakpoints are fixed in the contract and emitted on-chain in the{" "}
+            <span className="font-mono">PricerCommitted</span> event. This page computes the fee locally and reads{" "}
             <span className="font-mono">feeBps</span> from the deployed pricer to confirm the two agree.
           </p>
         </CardContent>

@@ -4,42 +4,59 @@ import { useState } from "react";
 import type { Address } from "viem";
 import { useAccount, useReadContract } from "wagmi";
 import { Button } from "@/components/ui/button";
+import { AlertCircle, ArrowUpRight, Check, Spinner } from "@/components/ui/icons";
 import { Input } from "@/components/ui/input";
 import { musd } from "@/lib/contracts";
 import { parseBtc, parseMusd } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { useTx, type WriteConfig } from "@/hooks/useTx";
 
 const EXPLORER = "https://explorer.test.mezo.org/tx/";
 
-/** Inline status line for a transaction: prompt, pending, error, or a success link. */
+function TxLink({ hash }: { hash: string }) {
+  return (
+    <a
+      className="inline-flex items-center gap-0.5 font-medium underline-offset-2 hover:underline"
+      href={`${EXPLORER}${hash}`}
+      target="_blank"
+      rel="noreferrer"
+    >
+      View transaction
+      <ArrowUpRight className="h-3 w-3" />
+    </a>
+  );
+}
+
+/** Inline status for a transaction: wallet prompt, pending, error, or confirmed with an explorer link. */
 export function TxNote({ tx }: { tx: ReturnType<typeof useTx> }) {
   if (tx.status === "idle") return null;
-  if (tx.status === "error")
-    return (
-      <p className="text-sm text-danger">
-        {tx.error}
-        {tx.hash ? (
-          <>
-            {" "}
-            <a className="underline" href={`${EXPLORER}${tx.hash}`} target="_blank" rel="noreferrer">
-              View transaction
-            </a>
-          </>
-        ) : null}
-      </p>
-    );
-  if (tx.status === "success")
-    return (
-      <p className="text-sm text-safe">
-        Done.{" "}
-        {tx.hash ? (
-          <a className="underline" href={`${EXPLORER}${tx.hash}`} target="_blank" rel="noreferrer">
-            View transaction
-          </a>
-        ) : null}
-      </p>
-    );
-  return <p className="text-sm text-text-muted">{tx.status === "signing" ? "Confirm in your wallet…" : "Waiting for confirmation…"}</p>;
+  const tone =
+    tx.status === "error"
+      ? "border-danger/25 bg-danger/10 text-danger"
+      : tx.status === "success"
+        ? "border-safe/25 bg-safe/10 text-safe"
+        : "border-border bg-bg-subtle text-text-muted";
+  return (
+    <div role="status" className={cn("flex items-start gap-2 rounded-sm border px-3 py-2 text-sm", tone)}>
+      {tx.status === "error" ? (
+        <AlertCircle className="mt-0.5" />
+      ) : tx.status === "success" ? (
+        <Check className="mt-0.5" />
+      ) : (
+        <Spinner className="mt-0.5" />
+      )}
+      <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+        {tx.status === "error"
+          ? tx.error
+          : tx.status === "success"
+            ? "Confirmed"
+            : tx.status === "signing"
+              ? "Confirm in your wallet"
+              : "Waiting for confirmation"}
+        {tx.hash && (tx.status === "error" || tx.status === "success") ? <TxLink hash={tx.hash} /> : null}
+      </span>
+    </div>
+  );
 }
 
 /** A single-amount action (add/withdraw/borrow/repay). `build` turns the parsed amount into a write. */
@@ -65,20 +82,28 @@ export function AmountAction({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex gap-2">
-        <Input
-          value={raw}
-          onChange={(e) => setRaw(e.target.value)}
-          placeholder={`Amount (${unit})`}
-          inputMode="decimal"
-          disabled={disabled || tx.busy}
-        />
+        <div className="relative flex-1">
+          <Input
+            value={raw}
+            onChange={(e) => setRaw(e.target.value)}
+            placeholder="0.00"
+            inputMode="decimal"
+            aria-label={`Amount in ${unit}`}
+            disabled={disabled || tx.busy}
+            className="pr-14"
+          />
+          <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center font-mono text-xs text-text-muted">
+            {unit}
+          </span>
+        </div>
         <Button
           variant="outline"
           className="shrink-0"
-          disabled={disabled || tx.busy || raw.trim() === ""}
+          loading={tx.busy}
+          disabled={disabled || raw.trim() === ""}
           onClick={() => tx.run(() => build(parse(raw)))}
         >
-          {tx.busy ? "…" : cta}
+          {cta}
         </Button>
       </div>
       <TxNote tx={tx} />
@@ -118,16 +143,22 @@ export function ApproveAndAct({
 
   return (
     <div className="flex flex-col gap-2">
+      {needed > 0n ? (
+        <span className="text-xs text-text-muted">
+          {enough ? "Step 2 of 2: confirm the transaction." : "Step 1 of 2: allow Lifeline to use your MUSD."}
+        </span>
+      ) : null}
       {enough ? (
-        <Button disabled={disabled || act.busy} onClick={() => act.run(build)}>
-          {act.busy ? "…" : actionLabel}
+        <Button loading={act.busy} disabled={disabled} onClick={() => act.run(build)}>
+          {actionLabel}
         </Button>
       ) : (
         <Button
-          disabled={disabled || approve.busy || needed === 0n}
+          loading={approve.busy}
+          disabled={disabled || needed === 0n}
           onClick={() => approve.run(() => ({ ...musd, functionName: "approve", args: [spender, needed] }))}
         >
-          {approve.busy ? "Approving…" : "Approve MUSD"}
+          Approve MUSD
         </Button>
       )}
       <TxNote tx={enough ? act : approve} />

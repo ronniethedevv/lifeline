@@ -50,6 +50,8 @@ describe("validateTerms", () => {
   });
   it("rejects trigger at/below MCR, target at/below trigger, and zero maxRescue", () => {
     expect(validateTerms({ mcr, triggerICR: pct(110), targetICR: pct(150), maxRescue: musd(500) })).toMatch(/liquidation ratio/);
+    // Contract rule (PositionVault.MIN_TRIGGER_BUFFER): within 20 points of MCR is rejected, MCR + 20 is the floor.
+    expect(validateTerms({ mcr, triggerICR: pct(129), targetICR: pct(150), maxRescue: musd(500) })).toMatch(/20 points/);
     expect(validateTerms({ mcr, triggerICR: pct(130), targetICR: pct(130), maxRescue: musd(500) })).toMatch(/above the trigger/);
     expect(validateTerms({ mcr, triggerICR: pct(130), targetICR: pct(150), maxRescue: 0n })).toMatch(/greater than zero/);
   });

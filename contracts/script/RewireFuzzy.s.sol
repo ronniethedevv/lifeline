@@ -10,11 +10,12 @@ import {IBorrowerOperations} from "../src/interfaces/IBorrowerOperations.sol";
 import {ITroveManager} from "../src/interfaces/ITroveManager.sol";
 import {IPriceFeed} from "../src/interfaces/IPriceFeed.sol";
 
-/// @notice Redeploys VaultFactory + RescueMarket wired to the already-deployed FuzzyFeePricer
-///         (deployments/testnet.json), so rescues are priced by the fuzzy model. The existing pricer
-///         is reused; the previous factory/market and any vaults under them are superseded.
+/// @notice Redeploys VaultFactory + RescueMarket (current bytecode: fuzzy pricing + T1.7b seizure /
+///         loss accounting / two-asset pool / strategic-default guard) wired to the already-deployed
+///         FuzzyFeePricer (deployments/testnet.json). The pricer is reused; the previous factory/market
+///         and any vaults under them are superseded.
 /// @dev No constructor reads a price, so `forge script` simulation is safe (see Deploy.s.sol).
-///      Dry run: forge script script/RewireFuzzy.s.sol --rpc-url mezo_testnet
+///      Dry run: forge script script/RewireFuzzy.s.sol --rpc-url mezo_testnet --sender <deployer>
 ///      Deploy:  add --broadcast --private-key $DEPLOYER_PRIVATE_KEY
 contract RewireFuzzy is Script {
     error WrongChain(uint256 chainId);

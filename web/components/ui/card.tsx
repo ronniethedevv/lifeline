@@ -1,9 +1,9 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
 
-// shadcn/ui Card (Tailwind v3 template), themed with ui_context.md tokens.
+// shadcn/ui Card — Tier-2 floating widget: 20px radius, 1px border, soft daylight elevation.
 const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(({ className, ...props }, ref) => (
-  <div ref={ref} className={cn("rounded-[var(--radius)] border border-border bg-surface text-text", className)} {...props} />
+  <div ref={ref} className={cn("rounded-lg border border-border bg-surface text-text shadow-elevated", className)} {...props} />
 ));
 Card.displayName = "Card";
 
@@ -14,7 +14,7 @@ CardHeader.displayName = "CardHeader";
 
 const CardTitle = React.forwardRef<HTMLHeadingElement, React.HTMLAttributes<HTMLHeadingElement>>(
   ({ className, ...props }, ref) => (
-    <h2 ref={ref} className={cn("text-lg font-semibold leading-none tracking-tight", className)} {...props} />
+    <h2 ref={ref} className={cn("text-lg font-medium leading-tight tracking-[-0.02em]", className)} {...props} />
   ),
 );
 CardTitle.displayName = "CardTitle";

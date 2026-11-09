@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { DotMatrix } from "@/components/ui/dot-matrix";
 
 const STEPS: { n: string; title: string; body: string }[] = [
   {
@@ -16,7 +17,7 @@ const STEPS: { n: string; title: string; body: string }[] = [
   {
     n: "03",
     title: "Rescue fires in time",
-    body: "If health hits your trigger, the pool repays just enough to pull you back to target — before liquidation.",
+    body: "If health hits your trigger, the pool repays just enough to pull you back to target, well before liquidation.",
   },
   {
     n: "04",
@@ -57,9 +58,10 @@ export function Steps() {
   return (
     <section id="how" className="mx-auto w-full max-w-6xl overflow-x-hidden px-6 pb-12 pt-24">
       <div className="mx-auto flex max-w-2xl flex-col items-center gap-3 text-center">
+        <DotMatrix className="mx-auto" />
         <span className="font-mono text-xs uppercase tracking-[0.08em] text-accent">How a rescue works</span>
-        <h2 className="bg-gradient-to-b from-white via-white to-white/70 bg-clip-text text-3xl font-light leading-[1.1] tracking-[-0.04em] text-transparent sm:text-4xl">
-          A backstop that acts before the 110% line, not after.
+        <h2 className="text-3xl font-normal leading-[1.1] tracking-[-0.035em] sm:text-4xl">
+          A backstop that acts <span className="text-accent">before the 110% line</span>, not after.
         </h2>
       </div>
 
@@ -75,9 +77,9 @@ export function Steps() {
             }}
             className="card-specular flex min-w-[82%] snap-center flex-col p-5 sm:min-w-[60%] md:min-w-0"
           >
-            <span className="mb-6 font-mono text-2xl font-light text-[#f7931a]/80">{s.n}</span>
-            <div className="border-t border-white/[0.06] pt-4">
-              <h3 className="text-base font-medium text-white">{s.title}</h3>
+            <span className="mb-6 font-mono text-2xl font-light text-accent">{s.n}</span>
+            <div className="border-t border-border pt-4">
+              <h3 className="text-base font-medium text-text">{s.title}</h3>
               <p className="mt-2 text-sm text-text-muted">{s.body}</p>
             </div>
           </div>
@@ -85,7 +87,7 @@ export function Steps() {
       </div>
 
       <div className="mt-6 flex justify-center md:hidden">
-        <div className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.04] px-2 py-1">
+        <div className="inline-flex items-center gap-1 rounded-full border border-border bg-white px-2 py-1">
           {STEPS.map((s, i) => (
             <button
               key={s.n}
@@ -98,7 +100,7 @@ export function Steps() {
                 className={
                   i === active
                     ? "h-1.5 w-6 rounded-full bg-accent transition-all duration-300"
-                    : "h-1.5 w-1.5 rounded-full bg-white/25 transition-all duration-300"
+                    : "h-1.5 w-1.5 rounded-full bg-border-strong transition-all duration-300"
                 }
               />
             </button>

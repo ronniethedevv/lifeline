@@ -1,21 +1,48 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useAccount, useReadContracts } from "wagmi";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { PageHeader } from "@/components/PageHeader";
+import { LoadingValue } from "@/components/ui/skeleton";
+import { UnitInput } from "@/components/ui/unit-input";
 import { ApproveAndAct, safeMusd, TxNote } from "@/components/vault/shared";
 import { addresses, market } from "@/lib/contracts";
 import { formatMusd, formatPercent } from "@/lib/format";
 import { previewWithdraw, sharesForAssets, utilisation } from "@/lib/pool";
 import { useTx } from "@/hooks/useTx";
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Stat({ label, value, loading }: { label: string; value: ReactNode; loading?: boolean }) {
   return (
-    <div className="flex flex-col gap-0.5">
-      <dt className="text-sm text-text-muted">{label}</dt>
-      <dd className="font-mono text-sm tabular-nums">{value}</dd>
+    <div className="flex flex-col gap-1">
+      <dt className="text-[11px] font-medium uppercase tracking-[0.14em] text-text-muted">{label}</dt>
+      <dd className="font-mono text-lg tabular-nums tracking-[-0.01em] text-text">
+        {loading ? <LoadingValue className="h-5 w-24" /> : value}
+      </dd>
+    </div>
+  );
+}
+
+/** Horizontal bar: share of pool assets currently lent out in rescues. */
+function UtilisationBar({ ratio }: { ratio: bigint }) {
+  const pct = Math.min(100, Number((ratio * 10000n) / 10n ** 18n) / 100);
+  return (
+    <div className="flex flex-col gap-2">
+      <div
+        className="h-1.5 w-full overflow-hidden rounded-full bg-surface-2"
+        role="meter"
+        aria-label="Pool utilisation"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={pct}
+      >
+        <div className="h-full rounded-full bg-accent transition-[width] duration-500" style={{ width: `${pct}%` }} />
+      </div>
+      <div className="flex justify-between text-xs text-text-muted">
+        <span>Available to withdraw</span>
+        <span>Lent out in rescues</span>
+      </div>
     </div>
   );
 }
@@ -23,7 +50,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 /** Provider pool: deposit/withdraw MUSD and pool stats (ui_context.md page 4). */
 export function ProvidePanel() {
   const { address, isConnected } = useAccount();
-  const { data, refetch } = useReadContracts({
+  const { data, refetch, isLoading } = useReadContracts({
     allowFailure: true,
     contracts: [
       { ...market, functionName: "totalAssets" }, // 0
@@ -57,8 +84,16 @@ export function ProvidePanel() {
   });
 
   return (
-    <section className="flex flex-col gap-4">
-      <h1 className="text-2xl font-semibold">Provide</h1>
+    <section className="flex flex-col gap-5">
+      <PageHeader
+        eyebrow="Provide"
+        title={
+          <>
+            Back loans. <span className="text-accent">Earn fees.</span>
+          </>
+        }
+        description="Fund rescues with MUSD and earn the fee each borrower pays when they repay."
+      />
 
       <Card>
         <CardHeader>
@@ -69,19 +104,23 @@ export function ProvidePanel() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <Stat label="Pool size" value={`${formatMusd(totalAssets)} MUSD`} />
-            <Stat label="Available now" value={`${formatMusd(liquid)} MUSD`} />
-            <Stat label="In active rescues" value={`${formatMusd(outstanding)} MUSD`} />
-            <Stat label="Utilisation" value={formatPercent(utilisation(outstanding, totalAssets))} />
+          <dl className="grid grid-cols-2 gap-5 sm:grid-cols-4">
+            <Stat loading={isLoading} label="Pool size" value={`${formatMusd(totalAssets)} MUSD`} />
+            <Stat loading={isLoading} label="Available now" value={`${formatMusd(liquid)} MUSD`} />
+            <Stat loading={isLoading} label="In active rescues" value={`${formatMusd(outstanding)} MUSD`} />
+            <Stat loading={isLoading} label="Utilisation" value={formatPercent(utilisation(outstanding, totalAssets))} />
           </dl>
+          <div className="mt-6">
+            <UtilisationBar ratio={utilisation(outstanding, totalAssets)} />
+          </div>
         </CardContent>
       </Card>
 
       {!isConnected || address === undefined ? (
         <Card>
           <CardHeader>
-            <CardDescription>Connect a wallet to deposit or withdraw.</CardDescription>
+            <CardTitle>Connect a wallet</CardTitle>
+            <CardDescription>Use the Connect button at the top right to deposit or withdraw.</CardDescription>
           </CardHeader>
         </Card>
       ) : (
@@ -92,8 +131,8 @@ export function ProvidePanel() {
             </CardHeader>
             <CardContent>
               <dl className="grid grid-cols-2 gap-4">
-                <Stat label="Your claim" value={`${formatMusd(myClaim)} MUSD`} />
-                <Stat label="Pool share" value={formatPercent(poolShare(myShares, totalShares))} />
+                <Stat loading={isLoading} label="Your claim" value={`${formatMusd(myClaim)} MUSD`} />
+                <Stat loading={isLoading} label="Pool share" value={formatPercent(poolShare(myShares, totalShares))} />
               </dl>
             </CardContent>
           </Card>
@@ -101,14 +140,15 @@ export function ProvidePanel() {
           <Card>
             <CardHeader>
               <CardTitle>Deposit</CardTitle>
-              <CardDescription>Approve MUSD, then deposit to the pool.</CardDescription>
+              <CardDescription>Your MUSD joins the pool and earns a share of every rescue fee.</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
-              <Input
+              <UnitInput
+                unit="MUSD"
+                aria-label="Deposit amount"
                 value={depositRaw}
                 onChange={(e) => setDepositRaw(e.target.value)}
-                placeholder="Amount (MUSD)"
-                inputMode="decimal"
+                placeholder="0.00"
               />
               <ApproveAndAct
                 spender={addresses.rescueMarket}
@@ -130,13 +170,16 @@ export function ProvidePanel() {
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
               <div className="flex gap-2">
-                <Input
-                  value={withdrawRaw}
-                  onChange={(e) => setWithdrawRaw(e.target.value)}
-                  placeholder="Amount (MUSD)"
-                  inputMode="decimal"
-                  disabled={withdraw.busy}
-                />
+                <div className="flex-1">
+                  <UnitInput
+                    unit="MUSD"
+                    aria-label="Withdraw amount"
+                    value={withdrawRaw}
+                    onChange={(e) => setWithdrawRaw(e.target.value)}
+                    placeholder="0.00"
+                    disabled={withdraw.busy}
+                  />
+                </div>
                 <Button
                   variant="outline"
                   className="shrink-0"
@@ -147,15 +190,19 @@ export function ProvidePanel() {
                 </Button>
               </div>
               <Button
+                loading={withdraw.busy}
                 disabled={withdraw.busy || withdrawShares === 0n || overLiquidity}
                 onClick={() => withdraw.run(() => ({ ...market, functionName: "withdraw", args: [withdrawShares] }))}
               >
-                {withdraw.busy ? "…" : "Withdraw"}
+                Withdraw
               </Button>
               {overLiquidity ? (
                 <p className="text-sm text-danger">Only {formatMusd(liquid)} MUSD is available right now.</p>
               ) : withdrawShares > 0n ? (
-                <p className="text-xs text-text-muted">You will receive ≈ {formatMusd(withdrawPayout)} MUSD.</p>
+                <div className="flex items-center justify-between rounded-sm border border-border bg-bg-subtle p-3 text-xs">
+                  <span className="text-text-muted">You receive</span>
+                  <span className="font-mono tabular-nums text-text">About {formatMusd(withdrawPayout)} MUSD</span>
+                </div>
               ) : null}
               <TxNote tx={withdraw} />
             </CardContent>
