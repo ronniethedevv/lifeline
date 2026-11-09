@@ -67,6 +67,49 @@ export interface Terms {
 /** Must match PositionVault.MIN_TRIGGER_BUFFER: the trigger sits at least 20 points above MCR (T1.7b). */
 export const MIN_TRIGGER_BUFFER = 200000000000000000n; // 0.2 * 1e18
 
+/** Terms used to size rescue room before a borrower has set their own (the form's placeholders). */
+export const DEFAULT_TRIGGER_ICR = 1300000000000000000n; // 130%
+export const DEFAULT_TARGET_ICR = 1500000000000000000n; // 150%
+
+export type RescueRoomLevel = "none" | "partial" | "full";
+
+export interface RescueRoom {
+  /** MUSD a rescue may repay before MUSD's min-net-debt rule blocks it. */
+  room: bigint;
+  /** MUSD a rescue fired exactly at the trigger must repay to restore the target. */
+  needed: bigint;
+  level: RescueRoomLevel;
+}
+
+/**
+ * How much a rescue can repay versus how much one needs. Mirrors RescueMarket._repayAmount's cap:
+ * room = max(0, debt − gasComp − minNetDebt). At ICR = trigger the collateral is worth
+ * trigger·debt, so restoring the target repays debt·(1 − trigger/target).
+ */
+export function rescueRoom(p: {
+  debt: bigint;
+  gasComp: bigint;
+  minNetDebt: bigint;
+  triggerICR: bigint;
+  targetICR: bigint;
+}): RescueRoom {
+  const net = p.debt > p.gasComp ? p.debt - p.gasComp : 0n;
+  const room = net > p.minNetDebt ? net - p.minNetDebt : 0n;
+  const needed = p.triggerICR > 0n && p.targetICR > p.triggerICR ? p.debt - (p.debt * p.triggerICR) / p.targetICR : 0n;
+  const level: RescueRoomLevel = room === 0n ? "none" : room < needed ? "partial" : "full";
+  return { room, needed, level };
+}
+
+/**
+ * Smallest net borrow (excluding the gas reserve) whose rescue room covers a full rescue at the
+ * trigger: N − min ≥ (N + gas)·(1 − t/T)  ⇔  N ≥ (min·T + gas·(T − t)) / t. Rounded up.
+ */
+export function minBorrowForFullRescue(minNetDebt: bigint, gasComp: bigint, triggerICR: bigint, targetICR: bigint): bigint {
+  if (triggerICR === 0n || targetICR <= triggerICR) return minNetDebt;
+  const num = minNetDebt * targetICR + gasComp * (targetICR - triggerICR);
+  return (num + triggerICR - 1n) / triggerICR;
+}
+
 /** Rescue-terms validation (trigger >= MCR + 20pp, trigger < target, maxRescue > 0). Null if valid. */
 export function validateTerms({ mcr, triggerICR, targetICR, maxRescue }: Terms): string | null {
   if (triggerICR < mcr + MIN_TRIGGER_BUFFER) return "Trigger must be at least 20 points above the liquidation ratio.";

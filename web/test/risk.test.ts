@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { classifyRisk, currentICR, liquidationPrice, nominalICR, validateTerms } from "@/lib/risk";
+import {
+  classifyRisk,
+  currentICR,
+  liquidationPrice,
+  minBorrowForFullRescue,
+  nominalICR,
+  rescueRoom,
+  validateTerms,
+} from "@/lib/risk";
 
 const pct = (n: number) => BigInt(Math.round(n * 10)) * 10n ** 15n; // n% -> 1e18 ratio (1 dp)
 const musd = (n: number) => BigInt(n) * 10n ** 18n;
@@ -40,6 +48,35 @@ describe("ratio math", () => {
   it("liquidationPrice solves ICR = MCR", () => {
     expect(liquidationPrice(10n ** 18n, musd(1000), pct(110))).toBe(musd(1100));
     expect(liquidationPrice(0n, musd(1000), pct(110))).toBe(0n);
+  });
+});
+
+describe("rescueRoom (mirrors RescueMarket's min-net-debt cap)", () => {
+  const base = { gasComp: musd(200), minNetDebt: musd(1800), triggerICR: pct(130), targetICR: pct(150) };
+
+  it("has no room at the minimum debt", () => {
+    const r = rescueRoom({ ...base, debt: musd(2000) }); // net 1,800
+    expect(r.room).toBe(0n);
+    expect(r.level).toBe("none");
+  });
+
+  it("is partial when the room is below what a trigger-time rescue needs", () => {
+    const r = rescueRoom({ ...base, debt: musd(2200) }); // net 2,000 -> room 200
+    expect(r.room).toBe(musd(200));
+    expect(r.needed).toBe(musd(2200) - (musd(2200) * pct(130)) / pct(150)); // ~293.3
+    expect(r.level).toBe("partial");
+  });
+
+  it("is full for a loan well above the minimum", () => {
+    const r = rescueRoom({ ...base, debt: musd(4500) }); // room 2,500, needs 600
+    expect(r.room).toBe(musd(2500));
+    expect(r.level).toBe("full");
+  });
+
+  it("minBorrowForFullRescue is the exact full/partial boundary", () => {
+    const n = minBorrowForFullRescue(base.minNetDebt, base.gasComp, base.triggerICR, base.targetICR); // ~2,107.69
+    expect(rescueRoom({ ...base, debt: n + base.gasComp }).level).toBe("full");
+    expect(rescueRoom({ ...base, debt: n - 10n ** 15n + base.gasComp }).level).toBe("partial");
   });
 });
 

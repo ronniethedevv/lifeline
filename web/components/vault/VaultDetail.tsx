@@ -3,20 +3,28 @@
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import { getAddress, type Address, type PublicClient } from "viem";
-import { useAccount, usePublicClient, useReadContract } from "wagmi";
+import { useAccount, usePublicClient, useReadContracts } from "wagmi";
 import { Eyebrow, PageHeader } from "@/components/PageHeader";
 import { RiskBadge } from "@/components/RiskBadge";
 import { AnimatedNumber } from "@/components/ui/animated-number";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { CostPreview, PreviewRow } from "@/components/ui/cost-preview";
-import { AlertCircle, ArrowLeft, Lock } from "@/components/ui/icons";
+import { AlertCircle, ArrowLeft, Check, Lock } from "@/components/ui/icons";
 import { Label } from "@/components/ui/label";
 import { LoadingValue } from "@/components/ui/skeleton";
 import { UnitInput } from "@/components/ui/unit-input";
 import { addresses, borrowerOperations, market, vault } from "@/lib/contracts";
 import { formatBtc, formatMusd, formatPercent, parseBtc, parseMusd, parsePercent } from "@/lib/format";
-import { nominalICR, validateTerms, RISK_META } from "@/lib/risk";
+import {
+  DEFAULT_TARGET_ICR,
+  DEFAULT_TRIGGER_ICR,
+  minBorrowForFullRescue,
+  nominalICR,
+  rescueRoom,
+  validateTerms,
+  RISK_META,
+} from "@/lib/risk";
 import { computeHints } from "@/lib/hints";
 import { useTx } from "@/hooks/useTx";
 import { useVaultSummary, type VaultSummary } from "@/hooks/useVault";
@@ -32,6 +40,86 @@ function safeBtc(raw: string): bigint {
   } catch {
     return 0n;
   }
+}
+
+/** Parse a percent for live previews: undefined on empty or invalid input instead of throwing. */
+function safePercent(raw: string): bigint | undefined {
+  try {
+    return raw.trim() === "" ? undefined : parsePercent(raw);
+  } catch {
+    return undefined;
+  }
+}
+
+/** MUSD's governable debt limits, read live (architecture §3: never hard-code minNetDebt). */
+function useMusdLimits(): { minNetDebt: bigint | undefined; gasComp: bigint } {
+  const { data } = useReadContracts({
+    allowFailure: true,
+    contracts: [
+      { ...borrowerOperations, functionName: "minNetDebt" },
+      { ...borrowerOperations, functionName: "MUSD_GAS_COMPENSATION" },
+    ],
+  });
+  return {
+    minNetDebt: data?.[0]?.result as bigint | undefined,
+    gasComp: (data?.[1]?.result as bigint | undefined) ?? GAS_COMPENSATION,
+  };
+}
+
+/**
+ * Warns when MUSD's minimum debt leaves a rescue too little to repay (architecture §5,
+ * "small troves are unrescuable"). Mirrors RescueMarket's cap via lib/risk.rescueRoom.
+ */
+function RescueRoomNote({
+  debt,
+  minNetDebt,
+  gasComp,
+  triggerICR,
+  targetICR,
+}: {
+  debt: bigint;
+  minNetDebt: bigint;
+  gasComp: bigint;
+  triggerICR: bigint;
+  targetICR: bigint;
+}) {
+  const r = rescueRoom({ debt, gasComp, minNetDebt, triggerICR, targetICR });
+  const min = formatMusd(minNetDebt);
+  const fullFrom = formatMusd(minBorrowForFullRescue(minNetDebt, gasComp, triggerICR, targetICR));
+  if (r.level === "full") {
+    return (
+      <p className="flex items-start gap-2 text-sm text-text-muted" role="status">
+        <Check className="mt-0.5 text-safe" />
+        <span>
+          Room for a rescue: <span className="font-mono tabular-nums text-text">{formatMusd(r.room)} MUSD</span> above
+          MUSD&apos;s {min} MUSD minimum debt. A rescue at a {formatPercent(triggerICR)} trigger needs about{" "}
+          <span className="font-mono tabular-nums text-text">{formatMusd(r.needed)} MUSD</span>.
+        </span>
+      </p>
+    );
+  }
+  const none = r.level === "none";
+  return (
+    <div
+      role="alert"
+      className={`flex items-start gap-2.5 rounded-sm border p-3.5 text-sm ${
+        none ? "border-danger/25 bg-danger/10" : "border-watch/25 bg-watch/10"
+      }`}
+    >
+      <AlertCircle className={`mt-0.5 ${none ? "text-danger" : "text-watch"}`} />
+      <div className="flex flex-col gap-1">
+        <span className={`font-medium ${none ? "text-danger" : "text-watch"}`}>
+          {none ? "This loan can't be rescued" : "Only a partial rescue is possible"}
+        </span>
+        <span className="text-text-muted">
+          {none
+            ? `A rescue works by repaying part of your debt, and MUSD never lets net debt fall below ${min} MUSD. This loan has no debt above that minimum, so a rescue has nothing it can repay.`
+            : `A rescue at a ${formatPercent(triggerICR)} trigger needs to repay about ${formatMusd(r.needed)} MUSD to restore ${formatPercent(targetICR)}, but MUSD's ${min} MUSD minimum debt leaves room for only ${formatMusd(r.room)} MUSD. The rescue would stop short of the target.`}{" "}
+          Loans of {fullFrom} MUSD or more (excluding the gas reserve) can be fully rescued with these terms.
+        </span>
+      </div>
+    </div>
+  );
 }
 
 function hinter(client: PublicClient | undefined) {
@@ -125,8 +213,7 @@ function OpenLoan({ address, s, onDone }: { address: Address; s: VaultSummary; o
   const hints = hinter(client);
   const [coll, setColl] = useState("");
   const [debt, setDebt] = useState("");
-  const { data: minNetDebtData } = useReadContract({ ...borrowerOperations, functionName: "minNetDebt" });
-  const minNetDebt = minNetDebtData as bigint | undefined;
+  const { minNetDebt, gasComp } = useMusdLimits();
   const minLabel = minNetDebt !== undefined ? formatMusd(minNetDebt) : "1,800.00";
   const belowMin = minNetDebt !== undefined && safeMusd(debt) > 0n && safeMusd(debt) < minNetDebt;
   const tx = useTx(() => {
@@ -145,7 +232,7 @@ function OpenLoan({ address, s, onDone }: { address: Address; s: VaultSummary; o
   // Live pre-sign projection (ignores the small borrowing fee).
   const collWei = safeBtc(coll);
   const debtWei = safeMusd(debt);
-  const totalDebt = debtWei + GAS_COMPENSATION;
+  const totalDebt = debtWei + gasComp;
   const price = s.price;
   const preview =
     price !== undefined && collWei > 0n && debtWei > 0n
@@ -157,8 +244,8 @@ function OpenLoan({ address, s, onDone }: { address: Address; s: VaultSummary; o
       <CardHeader>
         <CardTitle>Open a loan</CardTitle>
         <CardDescription>
-          Deposit BTC as collateral and borrow MUSD. The minimum borrow is {minLabel} MUSD, and a loan close to the
-          minimum has little room to be rescued.
+          Deposit BTC as collateral and borrow MUSD. The minimum borrow is {minLabel} MUSD. A rescue can only repay
+          debt above that minimum, so a loan close to it has little or no room to be rescued.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
@@ -183,7 +270,22 @@ function OpenLoan({ address, s, onDone }: { address: Address; s: VaultSummary; o
             <PreviewRow label="Collateral value" value={`$${formatMusd(preview.value)}`} />
             <PreviewRow label="Debt incl. 200 MUSD gas reserve" value={`${formatMusd(totalDebt)} MUSD`} />
             <PreviewRow label="Starting loan health" value={<AnimatedNumber value={formatPercent(preview.icr)} />} emphasis />
+            {minNetDebt !== undefined && !belowMin ? (
+              <PreviewRow
+                label="Room for a rescue"
+                value={`${formatMusd(rescueRoom({ debt: totalDebt, gasComp, minNetDebt, triggerICR: DEFAULT_TRIGGER_ICR, targetICR: DEFAULT_TARGET_ICR }).room)} MUSD`}
+              />
+            ) : null}
           </CostPreview>
+        ) : null}
+        {minNetDebt !== undefined && debtWei > 0n && !belowMin ? (
+          <RescueRoomNote
+            debt={totalDebt}
+            minNetDebt={minNetDebt}
+            gasComp={gasComp}
+            triggerICR={DEFAULT_TRIGGER_ICR}
+            targetICR={DEFAULT_TARGET_ICR}
+          />
         ) : null}
         <Button onClick={submit} loading={tx.busy} disabled={coll.trim() === "" || debt.trim() === "" || belowMin}>
           Open loan
@@ -344,6 +446,14 @@ function RescueTermsForm({ address, s, onDone }: { address: Address; s: VaultSum
   const save = useTx(onDone);
   const optIn = useTx(onDone);
   const optOut = useTx(onDone);
+  const { minNetDebt, gasComp } = useMusdLimits();
+  // Size the rescue-room note with the terms being typed (if valid), else the saved terms, else defaults.
+  const typedTrigger = safePercent(trigger);
+  const typedTarget = safePercent(target);
+  const typedValid = typedTrigger !== undefined && typedTarget !== undefined && typedTarget > typedTrigger;
+  const savedValid = s.terms.triggerICR > 0n && s.terms.targetICR > s.terms.triggerICR;
+  const roomTrigger = typedValid ? typedTrigger : savedValid ? s.terms.triggerICR : DEFAULT_TRIGGER_ICR;
+  const roomTarget = typedValid ? typedTarget : savedValid ? s.terms.targetICR : DEFAULT_TARGET_ICR;
 
   const submit = () => {
     setErr(undefined);
@@ -393,6 +503,16 @@ function RescueTermsForm({ address, s, onDone }: { address: Address; s: VaultSum
         ) : (
           <p className="text-sm text-text-muted">This loan cannot be rescued until you set terms and opt in.</p>
         )}
+
+        {s.hasTrove && minNetDebt !== undefined ? (
+          <RescueRoomNote
+            debt={s.debt}
+            minNetDebt={minNetDebt}
+            gasComp={gasComp}
+            triggerICR={roomTrigger}
+            targetICR={roomTarget}
+          />
+        ) : null}
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Field id="trigger" label="Trigger" unit="%" value={trigger} onChange={setTrigger} placeholder="130" disabled={lien} />
