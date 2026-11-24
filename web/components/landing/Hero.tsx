@@ -54,7 +54,7 @@ export function Hero() {
               <div className="callout-reveal card-elevated absolute bottom-2 left-2 right-2 rounded-[12px] p-3.5 sm:bottom-auto sm:left-1/2 sm:right-auto sm:top-[58%] sm:max-w-[230px] sm:-translate-x-1/2">
                 <div className="flex items-center justify-between gap-2">
                   <span className="flex items-center gap-2 text-xs text-text-muted">
-                    <span className="live-dot h-1.5 w-1.5 rounded-full bg-accent" /> Rescue triggered
+                    <span className="h-1.5 w-1.5 rounded-full bg-accent" /> Example rescue
                   </span>
                   <span className="rounded-full border border-lien/25 bg-lien/10 px-2 py-0.5 text-[11px] text-lien">
                     Rescued
