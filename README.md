@@ -11,6 +11,10 @@ Built for the [AKINDO × Mezo Buildathon](https://app.akindo.io/wave-hacks/OVOO0
 **Live app: <https://lifeline-btc.vercel.app>** (Mezo testnet only; connect a Bitcoin wallet via
 Mezo Passport or an EVM wallet via WalletConnect).
 
+Track 1 — DeFi · Chain: Mezo testnet (31611) · Status: deployed, seizure live · Readiness: testnet
+
+**[Try it in 2 minutes](#try-it)** · **[Deployed contracts ↓](#deployed-addresses-mezo-testnet--chain-31611)** · **[Architecture](docs/architecture.md)** · **[Setup](docs/setup.md)** · **[Keeper runs](https://github.com/ronniethedevv/lifeline/actions/workflows/keeper.yml)**
+
 ---
 
 ## Try it
@@ -54,6 +58,20 @@ Mezo Passport or an EVM wallet via WalletConnect).
    Amounts assume BTC at about $74,000; the cost preview shows the health before you sign.
 
 ---
+
+## Answering the Wave 2 review
+
+The Wave 2 review called the Mezo integration "among the deepest in the wave" and named what
+would take it to the top rung. Each point, and where it stands:
+
+| The review asked for | Status | Where |
+|---|---|---|
+| Exercise `claimLien` seizure and loss recognition on-chain | **Done** | `seizeForLien` / `claimLien` / `recognizeLoss` deployed 2026-11-09, fork-tested — [`Seizure.t.sol`](contracts/test/fork/Seizure.t.sol), [RescueMarket on explorer](https://explorer.test.mezo.org/address/0x74B97f9F66A1735F4fF81344f1DedFb63cDaaECd) |
+| Handle a redeemed rescued trove so liens can't get stuck | **Handled by design** | `repayLien` / `claimLien` act on the vault's lien record, not the shrunken trove; surplus BTC after a redemption is claimable ([PositionVault](contracts/src/PositionVault.sol)). A dedicated redemption fork-test is next |
+| Verify the contracts on the Mezo explorer | **In progress** | Runtime bytecode reproduces byte-for-byte from commit `ff35e29` with solc 0.8.28; Blockscout verification is explorer-side pending ([deployments/testnet.json](deployments/testnet.json)) |
+| Get outside borrowers and providers using the testnet market | **In progress** | The market is open on testnet; their transactions will be linked here |
+| Add a pitch deck | **In progress** | In preparation; the link will be added here |
+| Label the landing page's sample numbers as examples | **Done** | The hero's illustrative rescue is marked "Example rescue", with no live indicator ([Hero.tsx](web/components/landing/Hero.tsx)) |
 
 ## The problem
 
@@ -170,20 +188,25 @@ pnpm dev                                   # http://localhost:3000
 
 ## Scope
 
-**Wave 1 (this submission)** — a deployed, demoable rescue flow on Mezo testnet:
-VaultFactory + PositionVault, the RescueMarket pool, the **FuzzyFeePricer**, a keeper bot, and a
-web app including an interactive **pricer explorer**.
+**Shipped and live on Mezo testnet** — the rescue flow end to end: VaultFactory +
+PositionVault, the RescueMarket pool, the **FuzzyFeePricer**, a keeper bot (hosted free on
+GitHub Actions), and a web app with an interactive **pricer explorer**.
 
-> **Wave 1 limitation (stated plainly):** there is **no seizure** yet. An unpaid lien keeps the
-> borrower's collateral locked, but the pool cannot force-claim the BTC, and if the trove is later
-> liquidated the providers bear the loss. Seizure (`claimLien`), with the partial-seizure ceiling
-> and strategic-default safeguards analysed in [docs/architecture.md §5](docs/architecture.md), is
-> Wave 2 work.
+> **Seizure is live.** `seizeForLien` / `claimLien` / `recognizeLoss` are deployed and
+> fork-tested ([`test/fork/Seizure.t.sol`](contracts/test/fork/Seizure.t.sol)). Past the lien's
+> due date, anyone can claim it: the pool seizes BTC up to the withdrawable ceiling
+> `(ICR − MCR)/ICR`, takes a 5% penalty, and recognises any shortfall on-chain. A
+> **combined-ICR floor (120%)** and a **minimum trigger buffer** bound every rescue so the fee
+> can never push a borrower into strategic default — the tail risk analysed in
+> [docs/architecture.md §5](docs/architecture.md). A redemption against a rescued vault shrinks
+> the trove but not the lien: `repayLien` and `claimLien` act on the vault's lien record, not the
+> shrunken trove, so a redemption cannot strand a lien.
 
-**Wave 2 (planned)** — seizure / `claimLien`; a **GNPricer** (Generalized Neuron) behind the same
-`IFeePricer` interface (the "fuzzy → neural" upgrade); tradeable positions (ERC-721) and ERC-4626
-provider shares; an invariant suite and Slither pass; redemption-aware pricing.
+**Next** — a **GNPricer** (Generalized Neuron) behind the same `IFeePricer` interface (the
+"fuzzy → neural" upgrade); redemption-aware *pricing*; tradeable positions (ERC-721) and
+ERC-4626 provider shares; an expanded invariant suite and a Slither pass; Blockscout source
+verification.
 
 ## License
 
-MIT — testnet software, provided as-is. Never deploy to Mezo mainnet without an audit.
+[Apache-2.0](LICENSE) — testnet software, provided as-is. Never deploy to Mezo mainnet without an audit.
