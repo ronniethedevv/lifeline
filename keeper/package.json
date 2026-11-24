@@ -2,6 +2,7 @@
   "name": "@lifeline/keeper",
   "version": "0.1.0",
   "private": true,
+  "license": "Apache-2.0",
   "description": "Lifeline keeper: watches opted-in vaults and rescues those below their trigger",
   "type": "module",
   "engines": {
